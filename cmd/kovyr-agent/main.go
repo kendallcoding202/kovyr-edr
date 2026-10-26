@@ -28,6 +28,7 @@ import (
 	"github.com/kendallcoding202/kovyr-edr/internal/checks"
 	"github.com/kendallcoding202/kovyr-edr/internal/keystore"
 	"github.com/kendallcoding202/kovyr-edr/internal/proof"
+	"github.com/kendallcoding202/kovyr-edr/internal/sysload"
 )
 
 // systemProbes is replaced in tests.
@@ -216,7 +217,8 @@ func cmdRun(dir, server string, interval time.Duration, insecure, once bool, std
 		logger.Print(err)
 		return 1
 	}
-	a, err := agent.New(agent.Config{Dir: dir, Interval: interval, Logf: logger.Printf}, signer, checks.NewRunner(systemProbes()), client)
+	a, err := agent.New(agent.Config{Dir: dir, Interval: interval, Logf: logger.Printf, Conditions: sysload.System()},
+		signer, checks.NewRunner(systemProbes()), client)
 	if err != nil {
 		logger.Print(err)
 		return 1

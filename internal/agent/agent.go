@@ -152,7 +152,7 @@ func (a *Agent) QueueLen() int { return a.queue.Len() }
 // Beat makes one statement and queues it. It does not send.
 func (a *Agent) Beat(ctx context.Context) (*proof.Statement, error) {
 	cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	nonce, err := a.transport.Challenge(cctx, a.signer.Public().DeviceID())
+	nonce, err := a.transport.Challenge(cctx, proof.DeviceID(a.signer.Public()))
 	cancel()
 	if err != nil {
 		// No nonce, no statement: a seq is never spent on a report the
@@ -209,7 +209,7 @@ func (a *Agent) seal(nonce proof.Nonce, r proof.Readings) (*proof.Envelope, *pro
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := env.Verify(a.signer.Public()); err != nil {
+	if err := proof.VerifyEnvelope(env, a.signer.Public()); err != nil {
 		return nil, nil, fmt.Errorf("own signature does not verify: %w", err)
 	}
 	st, err := proof.ValidateStatement(payload)

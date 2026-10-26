@@ -9,16 +9,20 @@ import (
 	"encoding/json"
 	"os"
 	"testing"
+
+	"github.com/kendallcoding202/kovyr-edr/proof/canon"
+	"github.com/kendallcoding202/kovyr-edr/proof/dsse"
 )
 
-// The files in testdata/ are copied verbatim from the proof engine
-// (proof-of-protection/engine/testdata/vectors). Passing them shows this
-// port produces the same bytes as the shared format, so swapping in the
-// shared library later changes nothing on the wire.
+// The shared test vectors (proof/testdata/vectors), read through the
+// agent's own entry points: its signer, envelope parser and verifier.
+// Passing them shows the device code produces exactly the shared format.
+
+const vectorDir = "../../proof/testdata/vectors/"
 
 func loadJSON(t *testing.T, name string, v any) {
 	t.Helper()
-	b, err := os.ReadFile("testdata/" + name)
+	b, err := os.ReadFile(vectorDir + name)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,15 +41,15 @@ func TestCanonicalizationVectors(t *testing.T) {
 		RejectAlways      []struct{ Name, Input string } `json:"reject_in_signed_data_always"`
 	}
 	loadJSON(t, "canonicalization.json", &v)
-	if v.Version != CanonVersion {
-		t.Fatalf("vector version %q, want %q", v.Version, CanonVersion)
+	if v.Version != canon.Version {
+		t.Fatalf("vector version %q, want %q", v.Version, canon.Version)
 	}
 	if len(v.Canonicalize) == 0 || len(v.RejectAsCanonical) == 0 || len(v.RejectAlways) == 0 {
 		t.Fatal("vector file has no cases")
 	}
 	for _, c := range v.Canonicalize {
 		// The canonical form must parse as canonical and hash as stated.
-		if _, err := ParseCanonical([]byte(c.Canonical)); err != nil {
+		if _, err := canon.Parse([]byte(c.Canonical)); err != nil {
 			t.Errorf("%s: canonical form rejected: %v", c.Name, err)
 		}
 		h := sha256.Sum256([]byte(c.Canonical))
@@ -53,13 +57,13 @@ func TestCanonicalizationVectors(t *testing.T) {
 			t.Errorf("%s: sha256 mismatch", c.Name)
 		}
 		if c.Input != c.Canonical {
-			if _, err := ParseCanonical([]byte(c.Input)); err == nil {
+			if _, err := canon.Parse([]byte(c.Input)); err == nil {
 				t.Errorf("%s: non-canonical input accepted", c.Name)
 			}
 		}
 	}
 	for _, c := range append(v.RejectAsCanonical, v.RejectAlways...) {
-		if _, err := ParseCanonical([]byte(c.Input)); err == nil {
+		if _, err := canon.Parse([]byte(c.Input)); err == nil {
 			t.Errorf("%s: accepted %q", c.Name, c.Input)
 		}
 	}
@@ -79,7 +83,7 @@ func TestDSSEVectors(t *testing.T) {
 	}
 	loadJSON(t, "dsse.json", &v)
 	payload, _ := base64.StdEncoding.DecodeString(v.Payload)
-	if got := hex.EncodeToString(PAE(v.PayloadType, payload)); got != v.PAEHex {
+	if got := hex.EncodeToString(dsse.PAE(v.PayloadType, payload)); got != v.PAEHex {
 		t.Fatalf("PAE mismatch:\n got %s\nwant %s", got, v.PAEHex)
 	}
 	es256 := 0
@@ -99,7 +103,7 @@ func TestDSSEVectors(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := env.Verify(pub); err != nil {
+		if err := VerifyEnvelope(env, pub); err != nil {
 			t.Errorf("engine envelope does not verify here: %v", err)
 		}
 		if string(env.Canonical()) != s.EnvelopeCanonical {
@@ -134,12 +138,47 @@ func TestDSSEVectors(t *testing.T) {
 			continue // an Ed25519 case
 		}
 		sig, _ := base64.StdEncoding.DecodeString(r.Sig)
-		if err := pub.Verify(PAE(v.PayloadType, payload), sig); err == nil {
+		if err := pub.Verify(dsse.PAE(v.PayloadType, payload), sig); err == nil {
 			t.Errorf("%s: accepted", r.Name)
 		}
 		rejected++
 	}
 	if rejected < 3 {
 		t.Fatalf("expected at least 3 ES256 must_reject cases, found %d", rejected)
+	}
+}
+
+// The statement vector's device key, through the agent's signer, must
+// reproduce the engine's envelope byte for byte (signing does not depend
+// on the predicate type).
+func TestStatementVectorEnvelope(t *testing.T) {
+	var v struct {
+		Payload  string                        `json:"payload_canonical"`
+		Envelope string                        `json:"envelope_canonical"`
+		Device   struct{ Pkcs8, Keyid string } `json:"device_key"`
+	}
+	loadJSON(t, "statement.json", &v)
+	der, _ := base64.StdEncoding.DecodeString(v.Device.Pkcs8)
+	k, err := x509.ParsePKCS8PrivateKey(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := NewSoftwareSigner(k.(*ecdsa.PrivateKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Public().KeyID() != v.Device.Keyid {
+		t.Fatal("device key ID differs from the vector")
+	}
+	env, err := SignEnvelope([]byte(v.Payload), s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(env.Canonical()) != v.Envelope {
+		t.Fatalf("agent signer does not reproduce the vector envelope:\n got %s\nwant %s", env.Canonical(), v.Envelope)
+	}
+	parsed, err := ParseEnvelope([]byte(v.Envelope))
+	if err != nil || VerifyEnvelope(parsed, s.Public()) != nil {
+		t.Fatalf("vector envelope does not parse and verify here: %v", err)
 	}
 }

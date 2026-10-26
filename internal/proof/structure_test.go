@@ -20,10 +20,20 @@ var forbiddenImports = []string{
 	"unsafe", "golang.org/x/sys/windows", "golang.org/x/sys/windows/registry",
 }
 
-func parsePackage(t *testing.T) []*ast.File {
+const module = "github.com/kendallcoding202/kovyr-edr/"
+
+// allowedLibs are the only in-module packages the statement builder may
+// import: the shared proof library's encoding, signature and schema
+// packages. They are checked below with the same import rules.
+var allowedLibs = map[string]bool{
+	module + "proof/canon": true, module + "proof/dsse": true,
+	module + "proof/sigs": true, module + "proof/posture": true,
+}
+
+func parseDir(t *testing.T, dir string) []*ast.File {
 	t.Helper()
 	fset := token.NewFileSet()
-	matches, _ := filepath.Glob("*.go")
+	matches, _ := filepath.Glob(filepath.Join(dir, "*.go"))
 	var files []*ast.File
 	for _, m := range matches {
 		if strings.HasSuffix(m, "_test.go") {
@@ -35,6 +45,15 @@ func parsePackage(t *testing.T) []*ast.File {
 		}
 		files = append(files, f)
 	}
+	if len(files) == 0 {
+		t.Fatalf("no Go files in %s; the test is not looking in the right place", dir)
+	}
+	return files
+}
+
+func parsePackage(t *testing.T) []*ast.File {
+	t.Helper()
+	files := parseDir(t, ".")
 	if len(files) < 4 {
 		t.Fatalf("found only %d source files; the test is not looking in the right place", len(files))
 	}
@@ -42,18 +61,36 @@ func parsePackage(t *testing.T) []*ast.File {
 }
 
 func TestBuilderCannotTouchFilesNetworkOrOS(t *testing.T) {
-	for _, f := range parsePackage(t) {
-		for _, imp := range f.Imports {
-			p, _ := strconv.Unquote(imp.Path.Value)
-			for _, bad := range forbiddenImports {
-				if p == bad {
-					t.Errorf("package proof imports %q; the statement builder must not reach files, the network or the OS", p)
+	// Walk package proof and every in-module package it reaches.
+	seen := map[string]bool{}
+	queue := []string{"."}
+	for len(queue) > 0 {
+		dir := queue[0]
+		queue = queue[1:]
+		if seen[dir] {
+			continue
+		}
+		seen[dir] = true
+		for _, f := range parseDir(t, dir) {
+			for _, imp := range f.Imports {
+				p, _ := strconv.Unquote(imp.Path.Value)
+				for _, bad := range forbiddenImports {
+					if p == bad {
+						t.Errorf("%s imports %q; the statement builder and the library under it must not reach files, the network or the OS", dir, p)
+					}
 				}
-			}
-			if strings.HasPrefix(p, "github.com/kendallcoding202/kovyr-edr/") {
-				t.Errorf("package proof imports %q; it must depend only on the standard library", p)
+				if !strings.HasPrefix(p, module) {
+					continue
+				}
+				if dir == "." && !allowedLibs[p] {
+					t.Errorf("package proof imports %q; it may use only the shared proof library's encoding, signature and schema packages", p)
+				}
+				queue = append(queue, filepath.Join("..", "..", strings.TrimPrefix(p, module)))
 			}
 		}
+	}
+	if len(seen) < 5 {
+		t.Fatalf("walked only %d packages; the test is not looking in the right place", len(seen))
 	}
 }
 

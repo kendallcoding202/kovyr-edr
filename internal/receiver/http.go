@@ -9,6 +9,7 @@ import (
 	"net/http"
 
 	"github.com/kendallcoding202/kovyr-edr/internal/proof"
+	"github.com/kendallcoding202/kovyr-edr/proof/canon"
 )
 
 // Handler serves the v0 API (docs/api.md).
@@ -37,7 +38,7 @@ func (r *Receiver) handleChallenge(w http.ResponseWriter, req *http.Request) {
 	}
 	// Exactly {"nonce":"<32 hex>"} in canonical JSON: the agent accepts
 	// nothing else.
-	b, _ := proof.EncodeCanonical(map[string]any{"nonce": hex.EncodeToString(n[:])})
+	b, _ := canon.Encode(map[string]any{"nonce": hex.EncodeToString(n[:])})
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Write(append(b, '\n'))

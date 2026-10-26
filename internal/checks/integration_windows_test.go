@@ -68,7 +68,7 @@ func TestRealWindowsChecks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := parsed.Verify(s.Public()); err != nil {
+	if err := proof.VerifyEnvelope(parsed, s.Public()); err != nil {
 		t.Fatalf("signature: %v", err)
 	}
 	st, err := proof.ValidateStatement(parsed.Payload)

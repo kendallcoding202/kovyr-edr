@@ -36,6 +36,8 @@ import (
 	"fmt"
 	"sort"
 	"time"
+
+	"github.com/kendallcoding202/kovyr-edr/proof/canon"
 )
 
 // InTotoStatementType is the in-toto Statement v1 type URI.
@@ -232,7 +234,7 @@ func BuildStatement(key *PublicKey, h Header, sh SensorHealth, r Readings) ([]by
 		"memory_integrity":            e.name(toggleNames, uint8(r.MemoryIntegrity)),
 	}
 	pred := map[string]any{
-		"attester":      key.DeviceID(),
+		"attester":      DeviceID(key),
 		"attester_kind": attesterKindNames[0],
 		"seq":           int64(h.Seq),
 		"prev":          hex.EncodeToString(h.Prev[:]),
@@ -259,7 +261,7 @@ func BuildStatement(key *PublicKey, h Header, sh SensorHealth, r Readings) ([]by
 		"_type":         InTotoStatementType,
 		"predicateType": PredicateEndpoint,
 		"subject": []any{map[string]any{
-			"name":   key.DeviceID(),
+			"name":   DeviceID(key),
 			"digest": map[string]any{"sha256": key.KeyID()},
 		}},
 		"predicate": pred,
@@ -267,7 +269,7 @@ func BuildStatement(key *PublicKey, h Header, sh SensorHealth, r Readings) ([]by
 	if err := checkStatement(st); err != nil {
 		return nil, fmt.Errorf("builder refused statement: %w", err)
 	}
-	return EncodeCanonical(st)
+	return canon.Encode(st)
 }
 
 // enc collects the first enum that is outside its table.
@@ -299,7 +301,7 @@ type Statement struct {
 // ValidateStatement checks that payload is a canonical heartbeat
 // statement that obeys the schema, and decodes it.
 func ValidateStatement(payload []byte) (*Statement, error) {
-	obj, err := ParseCanonicalObject(payload)
+	obj, err := canon.ParseObject(payload)
 	if err != nil {
 		return nil, err
 	}

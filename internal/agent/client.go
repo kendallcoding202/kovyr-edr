@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/kendallcoding202/kovyr-edr/internal/proof"
+	"github.com/kendallcoding202/kovyr-edr/proof/canon"
 )
 
 // Transport is how the agent reaches the server. It has exactly two
@@ -151,7 +152,7 @@ func ParseChallenge(body []byte) (proof.Nonce, error) {
 		return n, fmt.Errorf("%w: too long", ErrNotANonce)
 	}
 	body = bytes.TrimSuffix(body, []byte("\n"))
-	o, err := proof.ParseCanonicalObject(body)
+	o, err := canon.ParseObject(body)
 	if err != nil {
 		return n, fmt.Errorf("%w: %v", ErrNotANonce, err)
 	}

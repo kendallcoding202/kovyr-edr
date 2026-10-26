@@ -260,7 +260,7 @@ func (r *Receiver) receive(raw []byte, now time.Time, replaying bool) Result {
 	ev := func(kind string, seq uint32, detail string) Event {
 		return Event{At: now.UTC(), Kind: kind, Seq: seq, Detail: detail, Tamper: tamperKinds[kind]}
 	}
-	if err := env.Verify(d.key); err != nil {
+	if err := proof.VerifyEnvelope(env, d.key); err != nil {
 		return refuse(http.StatusBadRequest, d, "bad signature", ev(EvBadSignature, 0, err.Error()))
 	}
 	st, err := proof.ValidateStatement(env.Payload)

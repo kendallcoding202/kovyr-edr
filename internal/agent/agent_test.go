@@ -105,14 +105,14 @@ func TestBeatsFormAChainAcrossRestarts(t *testing.T) {
 		t.Fatalf("posted %d, queued %d", len(tr.posted), a.QueueLen())
 	}
 	for _, d := range tr.devices {
-		if d != s.Public().DeviceID() {
+		if d != proof.DeviceID(s.Public()) {
 			t.Fatalf("challenge asked for %q, want this device's ID", d)
 		}
 	}
 	prev := proof.GenesisPrev
 	for i, env := range tr.posted {
 		e, st := decode(t, env)
-		if err := e.Verify(s.Public()); err != nil {
+		if err := proof.VerifyEnvelope(e, s.Public()); err != nil {
 			t.Fatal(err)
 		}
 		if st.Seq != uint32(i+1) {

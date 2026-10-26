@@ -27,8 +27,8 @@ func (d Device) parse() (*proof.PublicKey, error) {
 	if err != nil {
 		return nil, fmt.Errorf("device %s: %w", d.DeviceID, err)
 	}
-	if k.DeviceID() != d.DeviceID {
-		return nil, fmt.Errorf("device %s: device_id does not match its public key (want %s)", d.DeviceID, k.DeviceID())
+	if proof.DeviceID(k) != d.DeviceID {
+		return nil, fmt.Errorf("device %s: device_id does not match its public key (want %s)", d.DeviceID, proof.DeviceID(k))
 	}
 	return k, nil
 }

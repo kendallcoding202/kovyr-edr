@@ -42,7 +42,7 @@ func newDev(t *testing.T) *testDev {
 }
 
 func (d *testDev) enrolled(label string) Device {
-	return Device{DeviceID: d.s.Public().DeviceID(), PublicKey: d.s.Public().Base64(), Label: label}
+	return Device{DeviceID: proof.DeviceID(d.s.Public()), PublicKey: d.s.Public().Base64(), Label: label}
 }
 
 func healthy() proof.Readings {
@@ -75,7 +75,7 @@ func (d *testDev) next(t *testing.T, r *Receiver, c *clock, o opt) []byte {
 		n = *o.nonce
 	} else {
 		var err error
-		if n, err = r.IssueNonce(d.s.Public().DeviceID()); err != nil {
+		if n, err = r.IssueNonce(proof.DeviceID(d.s.Public())); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -140,7 +140,7 @@ func hasEvent(res Result, kind string) bool {
 func statusOf(t *testing.T, r *Receiver, d *testDev) DeviceStatus {
 	t.Helper()
 	for _, s := range r.Status().Devices {
-		if s.DeviceID == d.s.Public().DeviceID() {
+		if s.DeviceID == proof.DeviceID(d.s.Public()) {
 			return s
 		}
 	}
@@ -198,7 +198,7 @@ func TestReplayOfAnOldSeqIsRefused(t *testing.T) {
 func TestReusedNonceIsRefused(t *testing.T) {
 	d := newDev(t)
 	r, c := newReceiver(t, nil, d)
-	n, _ := r.IssueNonce(d.s.Public().DeviceID())
+	n, _ := r.IssueNonce(proof.DeviceID(d.s.Public()))
 	expect(t, r.Receive(d.next(t, r, c, opt{nonce: &n})), 200, "accepted")
 	res := r.Receive(d.next(t, r, c, opt{nonce: &n}))
 	expect(t, res, 409, "refused")
@@ -219,7 +219,7 @@ func TestUnknownExpiredAndMisdirectedNonces(t *testing.T) {
 	}
 	a.undo() // that report was refused
 
-	forB, _ := r.IssueNonce(b.s.Public().DeviceID())
+	forB, _ := r.IssueNonce(proof.DeviceID(b.s.Public()))
 	res = r.Receive(a.next(t, r, c, opt{nonce: &forB}))
 	expect(t, res, 409, "refused")
 	if !hasEvent(res, EvUnknownNonce) || res.Reason != "misdirected nonce" {
@@ -227,7 +227,7 @@ func TestUnknownExpiredAndMisdirectedNonces(t *testing.T) {
 	}
 	a.undo()
 
-	old, _ := r.IssueNonce(a.s.Public().DeviceID())
+	old, _ := r.IssueNonce(proof.DeviceID(a.s.Public()))
 	c.now = c.now.Add(11 * time.Minute)
 	res = r.Receive(a.next(t, r, c, opt{nonce: &old}))
 	expect(t, res, 409, "refused")
@@ -315,7 +315,7 @@ func TestBadSignatureAndUnenrolledKeys(t *testing.T) {
 		t.Errorf("events %v", res.Events)
 	}
 	// A stranger signing with its own key is not enrolled.
-	sn, _ := r.IssueNonce(d.s.Public().DeviceID())
+	sn, _ := r.IssueNonce(proof.DeviceID(d.s.Public()))
 	expect(t, r.Receive(stranger.next(t, r, c, opt{nonce: &sn})), 403, "refused")
 	// The stranger claiming the enrolled device's keyid fails the signature.
 	forged := stranger.next(t, r, c, opt{nonce: &sn})
@@ -441,7 +441,7 @@ func TestRestartReplaysTheStore(t *testing.T) {
 func TestAgentToReceiverOverHTTP(t *testing.T) {
 	k, _ := proof.GenerateSoftwareKey()
 	s, _ := proof.NewSoftwareSigner(k)
-	dev := Device{DeviceID: s.Public().DeviceID(), PublicKey: s.Public().Base64()}
+	dev := Device{DeviceID: proof.DeviceID(s.Public()), PublicKey: s.Public().Base64()}
 	r, err := New(Config{}, []Device{dev}, nil)
 	if err != nil {
 		t.Fatal(err)

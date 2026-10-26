@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kendallcoding202/kovyr-edr/proof/canon"
 )
 
 // wantVocabulary is every enum string a statement may contain. It is
@@ -164,14 +166,14 @@ func TestBuildValidateRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("own statement does not validate: %v\n%s", err, payload)
 	}
-	if st.DeviceID != s.Public().DeviceID() || st.KeyID != s.Public().KeyID() || st.Seq != 7 || st.SensorHealth != testSensor {
+	if st.DeviceID != DeviceID(s.Public()) || st.KeyID != s.Public().KeyID() || st.Seq != 7 || st.SensorHealth != testSensor {
 		t.Errorf("header did not round-trip: %+v", st)
 	}
 	sort.Slice(r.EDR.Agents, func(i, j int) bool { return r.EDR.Agents[i].Vendor.String() < r.EDR.Agents[j].Vendor.String() })
 	if !reflect.DeepEqual(st.Readings, r) {
 		t.Errorf("readings did not round-trip:\n got %+v\nwant %+v", st.Readings, r)
 	}
-	obj, _ := ParseCanonicalObject(payload)
+	obj, _ := canon.ParseObject(payload)
 	if bad := forbiddenStrings(obj, "", ""); len(bad) != 0 {
 		t.Errorf("forbidden strings in a healthy statement: %v", bad)
 	}
@@ -244,7 +246,7 @@ func TestNoForbiddenStringsAcrossVocabulary(t *testing.T) {
 		if err != nil {
 			t.Fatalf("case %d: %v", i, err)
 		}
-		obj, err := ParseCanonicalObject(payload)
+		obj, err := canon.ParseObject(payload)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -273,7 +275,7 @@ func TestWalkerCatchesSmuggledText(t *testing.T) {
 		},
 		"text as nonce": func(o map[string]any) { pred(o)["nonce"] = "front desk pc" },
 	} {
-		obj, _ := ParseCanonicalObject(payload)
+		obj, _ := canon.ParseObject(payload)
 		mutate(obj)
 		if bad := forbiddenStrings(obj, "", ""); len(bad) == 0 {
 			t.Errorf("%s: walker found nothing", name)
@@ -347,8 +349,8 @@ func TestValidatorRefusesHandCraftedStatements(t *testing.T) {
 		"timestamp offset":     func(o map[string]any) { pred(o)["observed_at"] = "2026-10-26T19:00:00+02:00" },
 		"uppercase hex":        func(o map[string]any) { pred(o)["prev"] = strings.Repeat("AB", 32) },
 		"short hex":            func(o map[string]any) { pred(o)["nonce"] = "ab" },
-		"other device id":      func(o map[string]any) { pred(o)["attester"] = other.Public().DeviceID() },
-		"subject mismatch":     func(o map[string]any) { o["subject"].([]any)[0].(map[string]any)["name"] = other.Public().DeviceID() },
+		"other device id":      func(o map[string]any) { pred(o)["attester"] = DeviceID(other.Public()) },
+		"subject mismatch":     func(o map[string]any) { o["subject"].([]any)[0].(map[string]any)["name"] = DeviceID(other.Public()) },
 		"two subjects":         func(o map[string]any) { o["subject"] = append(o["subject"].([]any), o["subject"].([]any)[0]) },
 		"other predicate":      func(o map[string]any) { o["predicateType"] = "https://kovyr.com/attestation/posture/v1" },
 		"sensor extra field":   func(o map[string]any) { pred(o)["sensor_health"].(map[string]any)["process"] = "kovyr.exe" },
@@ -362,9 +364,9 @@ func TestValidatorRefusesHandCraftedStatements(t *testing.T) {
 		},
 	}
 	for name, mutate := range cases {
-		obj, _ := ParseCanonicalObject(payload)
+		obj, _ := canon.ParseObject(payload)
 		mutate(obj)
-		b, err := EncodeCanonical(obj)
+		b, err := canon.Encode(obj)
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}

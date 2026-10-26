@@ -200,6 +200,7 @@ func (a *Agent) seal(nonce proof.Nonce, r proof.Readings) (*proof.Envelope, *pro
 	h := proof.Header{
 		Seq: a.state.Seq + 1, Prev: prev, Nonce: nonce, Salt: salt,
 		ObservedAt: a.cfg.Clock.Now(), AgentVersion: Version,
+		Schedule: proof.Schedule{IntervalS: uint16(a.cfg.Interval / time.Second)},
 	}
 	payload, err := proof.BuildStatement(a.signer.Public(), h, SensorHealth(), r)
 	if err != nil {

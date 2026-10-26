@@ -119,7 +119,7 @@ func isUntyped(e ast.Expr) bool {
 // timestamp and is allowed).
 var builderInputs = map[string]bool{
 	"Header": true, "SensorHealth": true, "Readings": true, "SecurityCenter": true,
-	"Defender": true, "EDR": true, "EDRAgent": true, "Version": true,
+	"Defender": true, "EDR": true, "EDRAgent": true, "Version": true, "Schedule": true,
 }
 
 // vocabularyTypes must be small unsigned integers, never strings.

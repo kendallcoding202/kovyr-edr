@@ -23,6 +23,7 @@ func endpointStatement(dev sigs.Signer) map[string]any {
 			"agent_version": map[string]any{"major": int64(0), "minor": int64(1), "patch": int64(0)},
 			"sensor_health": map[string]any{"sensor_running": true, "tamper_detected": false,
 				"driver_blocklist_version": int64(0), "policy_version": int64(0)},
+			"schedule": map[string]any{"interval_s": int64(900), "deferred_s": int64(0), "heavy_checks_skipped": false},
 			"protection": map[string]any{
 				"security_center": map[string]any{"state": "ok", "products": int64(1), "enabled": int64(1), "up_to_date": int64(1)},
 				"defender": map[string]any{"state": "ok", "am_service": "on", "antivirus": "on", "real_time_protection": "on",
@@ -184,7 +185,20 @@ func TestEndpointRefusesBadContent(t *testing.T) {
 		"truncated but not full": func(o map[string]any) {
 			epObj(o, "edr")["agents"] = map[string]any{"items": agentItems("huntress"), "total": int64(5), "truncated": true}
 		},
-		"firewall 4": func(o map[string]any) { epProt(o)["firewall_profiles_on"] = int64(4) },
+		"firewall 4":  func(o map[string]any) { epProt(o)["firewall_profiles_on"] = int64(4) },
+		"no schedule": func(o map[string]any) { delete(epPred(o), "schedule") },
+		"interval too long": func(o map[string]any) {
+			epPred(o)["schedule"].(map[string]any)["interval_s"] = int64(86400)
+		},
+		"interval too short": func(o map[string]any) {
+			epPred(o)["schedule"].(map[string]any)["interval_s"] = int64(5)
+		},
+		"negative deferral": func(o map[string]any) {
+			epPred(o)["schedule"].(map[string]any)["deferred_s"] = int64(-1)
+		},
+		"power source": func(o map[string]any) {
+			epPred(o)["schedule"].(map[string]any)["on_battery"] = true
+		},
 		"blocklist suspended": func(o map[string]any) {
 			epProt(o)["vulnerable_driver_blocklist"] = "suspended"
 		},

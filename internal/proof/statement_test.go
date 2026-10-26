@@ -138,6 +138,7 @@ func testHeader(seq uint32) Header {
 		Seq:          seq,
 		ObservedAt:   time.Date(2026, 10, 26, 19, 0, 0, 0, time.UTC),
 		AgentVersion: Version{0, 1, 0},
+		Schedule:     Schedule{IntervalS: 900},
 	}
 	h.Nonce[0], h.Salt[0], h.Prev[0] = 1, 2, 3
 	return h
@@ -169,7 +170,8 @@ func TestBuildValidateRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("own statement does not validate: %v\n%s", err, payload)
 	}
-	if st.DeviceID != DeviceID(s.Public()) || st.KeyID != s.Public().KeyID() || st.Seq != 7 || st.SensorHealth != testSensor {
+	if st.DeviceID != DeviceID(s.Public()) || st.KeyID != s.Public().KeyID() || st.Seq != 7 || st.SensorHealth != testSensor ||
+		st.Schedule != testHeader(7).Schedule {
 		t.Errorf("header did not round-trip: %+v", st)
 	}
 	sort.Slice(r.EDR.Agents, func(i, j int) bool { return r.EDR.Agents[i].Vendor.String() < r.EDR.Agents[j].Vendor.String() })
@@ -242,6 +244,8 @@ func TestNoForbiddenStringsAcrossVocabulary(t *testing.T) {
 	rng := rand.New(rand.NewPCG(1, 2))
 	for i := 0; i < 500; i++ {
 		h := testHeader(uint32(1 + rng.IntN(1<<31-1)))
+		h.Schedule = Schedule{IntervalS: uint16(MinIntervalS + rng.IntN(MaxIntervalS-MinIntervalS+1)),
+			DeferredS: uint16(rng.IntN(MaxIntervalS + 1)), HeavyChecksSkipped: rng.IntN(2) == 0}
 		sh := SensorHealth{SensorRunning: rng.IntN(2) == 0, TamperDetected: rng.IntN(2) == 0,
 			DriverBlocklistVersion: rng.Uint64N(MaxVersion + 1), PolicyVersion: rng.Uint64N(MaxVersion + 1)}
 		rd := randomReadings(rng)
@@ -321,6 +325,9 @@ func TestBuilderRefusesValuesOutsideTheVocabulary(t *testing.T) {
 		"unknown count when ok": func(h *Header, r *Readings, p *SensorHealth) { r.SecurityCenter.Products = -1 },
 		"age -2":                func(h *Header, r *Readings, p *SensorHealth) { r.Defender.SignatureAgeDays = -2 },
 		"seq zero":              func(h *Header, r *Readings, p *SensorHealth) { h.Seq = 0 },
+		"no interval":           func(h *Header, r *Readings, p *SensorHealth) { h.Schedule.IntervalS = 0 },
+		"interval 2h":           func(h *Header, r *Readings, p *SensorHealth) { h.Schedule.IntervalS = 7200 },
+		"deferral 2h":           func(h *Header, r *Readings, p *SensorHealth) { h.Schedule.DeferredS = 7200 },
 		"no salt":               func(h *Header, r *Readings, p *SensorHealth) { h.Salt = Salt{} },
 		"no nonce":              func(h *Header, r *Readings, p *SensorHealth) { h.Nonce = Nonce{} },
 		"no time":               func(h *Header, r *Readings, p *SensorHealth) { h.ObservedAt = time.Time{} },
@@ -592,7 +599,8 @@ func TestBuilderReproducesTheEndpointVector(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := Header{Seq: want.Seq, Prev: want.Prev, Nonce: want.Nonce, Salt: want.Salt, ObservedAt: want.ObservedAt, AgentVersion: Version{0, 1, 0}}
+	h := Header{Seq: want.Seq, Prev: want.Prev, Nonce: want.Nonce, Salt: want.Salt, ObservedAt: want.ObservedAt, AgentVersion: Version{0, 1, 0},
+		Schedule: Schedule{IntervalS: 1800, DeferredS: 60}}
 	r := Readings{
 		SecurityCenter: SecurityCenter{State: AvailOK, Products: 1, Enabled: 1, UpToDate: 1},
 		Defender: Defender{State: AvailOK, AMService: ToggleOn, Antivirus: ToggleOn, RealTime: ToggleOff,

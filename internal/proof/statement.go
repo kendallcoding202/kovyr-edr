@@ -51,11 +51,11 @@ const DevicePrefix = posture.PrefixDevice
 // TimeLayout is the only timestamp format in signed data: UTC, seconds.
 const TimeLayout = tsa.TimeLayout
 
-// Heartbeat interval bounds, in seconds (1 to 60 minutes; SPEC allows
-// 30 to 3600 for heartbeat_interval_s).
+// Heartbeat interval bounds, in seconds (1 to 60 minutes; SPEC 6.5
+// schedule.interval_s).
 const (
-	MinIntervalS = 60
-	MaxIntervalS = 3600
+	MinIntervalS = posture.MinHeartbeatIntervalS
+	MaxIntervalS = posture.MaxHeartbeatIntervalS
 )
 
 // Range caps (SPEC 6.4 and 6.5).
@@ -98,6 +98,14 @@ type Header struct {
 	Salt         Salt
 	ObservedAt   time.Time
 	AgentVersion Version
+	Schedule     Schedule
+}
+
+// Schedule is SPEC 6.5's schedule section: when the agent reports.
+type Schedule struct {
+	IntervalS          uint16 // planned wait before the next heartbeat, MinIntervalS..MaxIntervalS
+	DeferredS          uint16 // how long this heartbeat was put off under load, 0..MaxIntervalS
+	HeavyChecksSkipped bool   // slow checks skipped on battery; they report unknown
 }
 
 // SensorHealth is the SPEC section 6.4 sensor_health section: the health
@@ -244,6 +252,11 @@ func BuildStatement(key *PublicKey, h Header, sh SensorHealth, r Readings) ([]by
 			"driver_blocklist_version": int64(sh.DriverBlocklistVersion),
 			"policy_version":           int64(sh.PolicyVersion),
 		},
+		"schedule": map[string]any{
+			"interval_s":           int64(h.Schedule.IntervalS),
+			"deferred_s":           int64(h.Schedule.DeferredS),
+			"heavy_checks_skipped": h.Schedule.HeavyChecksSkipped,
+		},
 		"protection": protection,
 	}
 	if e.err != nil {
@@ -331,6 +344,7 @@ type Statement struct {
 	Salt         Salt
 	ObservedAt   time.Time
 	AgentVersion Version
+	Schedule     Schedule
 	SensorHealth SensorHealth
 	Readings     Readings
 	// EDRAgentsTotal is how many agents were found (edr.agents.total);
@@ -360,6 +374,7 @@ func decodeStatement(obj map[string]any) *Statement {
 	d := c["defender"].(map[string]any)
 	e := c["edr"].(map[string]any)
 	av := p["agent_version"].(map[string]any)
+	sched := p["schedule"].(map[string]any)
 	at, _ := time.Parse(TimeLayout, p["observed_at"].(string))
 	ev := func(table []string, v any) uint8 { n, _ := enumValue(table, v.(string)); return n }
 	st := &Statement{
@@ -369,6 +384,10 @@ func decodeStatement(obj map[string]any) *Statement {
 		ObservedAt: at,
 		AgentVersion: Version{
 			Major: uint16(av["major"].(int64)), Minor: uint16(av["minor"].(int64)), Patch: uint16(av["patch"].(int64)),
+		},
+		Schedule: Schedule{
+			IntervalS: uint16(sched["interval_s"].(int64)), DeferredS: uint16(sched["deferred_s"].(int64)),
+			HeavyChecksSkipped: sched["heavy_checks_skipped"].(bool),
 		},
 		SensorHealth: SensorHealth{
 			SensorRunning:          sh["sensor_running"].(bool),

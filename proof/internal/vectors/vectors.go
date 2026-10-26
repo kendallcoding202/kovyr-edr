@@ -426,6 +426,7 @@ func endpointPayload(dev sigs.Signer, at time.Time) ([]byte, error) {
 			"agent_version": map[string]any{"major": int64(0), "minor": int64(1), "patch": int64(0)},
 			"sensor_health": map[string]any{"sensor_running": true, "tamper_detected": false,
 				"driver_blocklist_version": int64(0), "policy_version": int64(0)},
+			"schedule": map[string]any{"interval_s": int64(1800), "deferred_s": int64(60), "heavy_checks_skipped": false},
 			"protection": map[string]any{
 				"security_center": map[string]any{"state": "ok", "products": int64(1), "enabled": int64(1), "up_to_date": int64(1)},
 				"defender": map[string]any{"state": "ok", "am_service": "on", "antivirus": "on", "real_time_protection": "off",

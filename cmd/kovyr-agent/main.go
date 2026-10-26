@@ -141,7 +141,8 @@ func cmdCheck(dir string, jsonOnly bool, stdout, stderr io.Writer) int {
 // previewStatement builds a statement exactly as a heartbeat would, with
 // seq 1 and a random nonce, and checks it.
 func previewStatement(s proof.Signer, r proof.Readings) ([]byte, error) {
-	h := proof.Header{Seq: 1, Prev: proof.GenesisPrev, ObservedAt: time.Now(), AgentVersion: agent.Version}
+	h := proof.Header{Seq: 1, Prev: proof.GenesisPrev, ObservedAt: time.Now(), AgentVersion: agent.Version,
+		Schedule: proof.Schedule{IntervalS: uint16(agent.DefaultInterval / time.Second)}}
 	var err error
 	if h.Salt, err = proof.NewSalt(); err != nil {
 		return nil, err

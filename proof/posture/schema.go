@@ -229,6 +229,9 @@ const (
 	MaxVersionNumber = 1<<53 - 1
 	// unknownInt is the integer value for "unknown or not applicable".
 	unknownInt = -1
+	// Heartbeat interval bounds for schedule.interval_s, in seconds.
+	MinHeartbeatIntervalS = 60
+	MaxHeartbeatIntervalS = 3600
 )
 
 // SensorHealthSpec is the sensor_health section (SPEC 6.4): the health of
@@ -318,7 +321,12 @@ func EndpointPredicateSpec() *Spec {
 			"major": integer(0, 65535), "minor": integer(0, 65535), "patch": integer(0, 65535),
 		}),
 		"sensor_health": SensorHealthSpec(),
-		"protection":    protectionSpec(),
+		"schedule": object(map[string]*Spec{
+			"interval_s":           integer(MinHeartbeatIntervalS, MaxHeartbeatIntervalS),
+			"deferred_s":           integer(0, MaxHeartbeatIntervalS),
+			"heavy_checks_skipped": boolean(),
+		}),
+		"protection": protectionSpec(),
 	})
 }
 

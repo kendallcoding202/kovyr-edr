@@ -52,7 +52,7 @@ func TestRealWindowsChecks(t *testing.T) {
 		t.Fatal(err)
 	}
 	s, _ := proof.NewSoftwareSigner(k)
-	h := proof.Header{Seq: 1, ObservedAt: time.Now(), AgentVersion: proof.Version{Minor: 1}}
+	h := proof.Header{Seq: 1, ObservedAt: time.Now(), AgentVersion: proof.Version{Minor: 1}, Schedule: proof.Schedule{IntervalS: 900}}
 	h.Salt, _ = proof.NewSalt()
 	n, _ := proof.NewSalt()
 	copy(h.Nonce[:], n[:])

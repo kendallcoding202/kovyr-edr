@@ -55,6 +55,10 @@ type Latest struct {
 	FirewallProfilesOn  int8   `json:"firewall_profiles_on"`
 	DriverBlocklist     string `json:"vulnerable_driver_blocklist"`
 	MemoryIntegrity     string `json:"memory_integrity"`
+	// The schedule the statement announced (SPEC 6.5).
+	IntervalS          uint16 `json:"interval_s"`
+	DeferredS          uint16 `json:"deferred_s"`
+	HeavyChecksSkipped bool   `json:"heavy_checks_skipped"`
 }
 
 // Status is GET /v0/status.
@@ -102,20 +106,31 @@ func (r *Receiver) deviceStatus(d *device, now time.Time) DeviceStatus {
 	}
 	recv, obs := d.lastRecv.UTC(), d.lastObs.UTC()
 	s.LastCheckIn, s.LastObservedAt = &recv, &obs
-	s.Overdue = float64(now.Sub(d.lastRecv)) > graceFactor*float64(r.cfg.Interval)
+	s.Overdue = float64(now.Sub(d.lastRecv)) > graceFactor*float64(expected(d.checkins[len(d.checkins)-1], r.cfg.Interval))
 	if st := d.latest; st != nil {
 		s.Latest = summarize(st)
 	}
 	return s
 }
 
+// expected is the interval a statement announced (SPEC 6.5
+// schedule.interval_s), or the configured one if it announced none.
+func expected(c checkin, fallback time.Duration) time.Duration {
+	if c.interval > 0 {
+		return c.interval
+	}
+	return fallback
+}
+
 // gaps finds stretches between consecutive statements (by observed_at),
 // and since the last one, that exceed the grace period, and holes in the
-// seq numbers (lost statements). A hole before the first statement seen
-// is a zero-length gap at that statement.
-func gaps(checkins []checkin, now time.Time, interval time.Duration) (out []Gap, missed, lost int) {
+// seq numbers (lost statements). The grace period after a statement is
+// 1.5 times the interval it announced, plus the deferral the next one
+// reports, so a laptop on battery or a busy machine is not reported as
+// missing heartbeats. A hole before the first statement seen is a
+// zero-length gap at that statement.
+func gaps(checkins []checkin, now time.Time, fallback time.Duration) (out []Gap, missed, lost int) {
 	out = []Gap{}
-	grace := time.Duration(graceFactor * float64(interval))
 	if len(checkins) > 0 && checkins[0].seq > 1 {
 		at := checkins[0].at.UTC()
 		n := int(checkins[0].seq) - 1
@@ -124,9 +139,11 @@ func gaps(checkins []checkin, now time.Time, interval time.Duration) (out []Gap,
 	}
 	for i := 1; i < len(checkins); i++ {
 		a, b := checkins[i-1], checkins[i]
+		interval := expected(a, fallback)
+		grace := time.Duration(graceFactor*float64(interval)) + b.deferred
 		g := Gap{From: a.at.UTC(), LostStatements: int(b.seq) - int(a.seq) - 1}
 		if b.at.Sub(a.at) > grace {
-			g.MissedIntervals = int(b.at.Sub(a.at)/interval) - 1
+			g.MissedIntervals = int((b.at.Sub(a.at)-b.deferred)/interval) - 1
 			if g.MissedIntervals < 1 {
 				g.MissedIntervals = 1
 			}
@@ -144,8 +161,9 @@ func gaps(checkins []checkin, now time.Time, interval time.Duration) (out []Gap,
 		lost += g.LostStatements
 	}
 	if len(checkins) > 0 {
-		last := checkins[len(checkins)-1].at
-		if now.Sub(last) > grace {
+		lc := checkins[len(checkins)-1]
+		last, interval := lc.at, expected(lc, fallback)
+		if now.Sub(last) > time.Duration(graceFactor*float64(interval)) {
 			n := int(now.Sub(last) / interval)
 			out = append(out, Gap{From: last.UTC(), MissedIntervals: n, Ongoing: true})
 			missed += n
@@ -168,6 +186,9 @@ func summarize(st *proof.Statement) *Latest {
 		FirewallProfilesOn:  rd.FirewallProfilesOn,
 		DriverBlocklist:     rd.DriverBlocklist.String(),
 		MemoryIntegrity:     rd.MemoryIntegrity.String(),
+		IntervalS:           st.Schedule.IntervalS,
+		DeferredS:           st.Schedule.DeferredS,
+		HeavyChecksSkipped:  st.Schedule.HeavyChecksSkipped,
 	}
 	for _, a := range rd.EDR.Agents {
 		if a.Running {

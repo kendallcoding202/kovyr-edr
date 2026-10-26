@@ -59,6 +59,13 @@ type Latest struct {
 	IntervalS          uint16 `json:"interval_s"`
 	DeferredS          uint16 `json:"deferred_s"`
 	HeavyChecksSkipped bool   `json:"heavy_checks_skipped"`
+	// The ransomware tripwire (SPEC 6.5): counts are buckets.
+	TripwireState     string            `json:"tripwire_state"`
+	TripwireTriggered bool              `json:"tripwire_triggered"`
+	TripwireReason    string            `json:"tripwire_reason,omitempty"`
+	TripwireWindow    string            `json:"tripwire_window,omitempty"`
+	TripwireFolders   uint8             `json:"tripwire_folders_watched"`
+	TripwireCounts    map[string]string `json:"tripwire_counts,omitempty"`
 }
 
 // Status is GET /v0/status.
@@ -198,6 +205,16 @@ func summarize(st *proof.Statement) *Latest {
 		}
 	}
 	l.EDRTotal, l.EDRTruncated = st.EDRAgentsTotal, st.EDRAgentsTruncated
+	tw := rd.Tripwire
+	l.TripwireState = tw.State.String()
+	if tw.State == proof.AvailOK {
+		l.TripwireTriggered, l.TripwireReason, l.TripwireWindow, l.TripwireFolders = tw.Triggered, tw.Reason.String(), tw.Window.String(), tw.FoldersWatched
+		c := tw.Counts
+		l.TripwireCounts = map[string]string{
+			"renamed": c.Renamed.String(), "extension_changed": c.ExtensionChanged.String(), "modified": c.Modified.String(),
+			"deleted": c.Deleted.String(), "suspicious_created": c.SuspiciousCreated.String(), "unknown_activity": c.UnknownActivity.String(),
+		}
+	}
 	return l
 }
 

@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/sys/windows"
+
 	"github.com/kendallcoding202/kovyr-edr/internal/proof"
 )
 
@@ -14,10 +16,16 @@ import (
 // into a statement that verifies and validates. The readings are logged so
 // CI shows what the runner reported.
 func TestRealWindowsChecks(t *testing.T) {
+	v := windows.RtlGetVersion()
+	t.Logf("Windows %d.%d build %d, product type %d (1 = workstation, 3 = server), elevated %v",
+		v.MajorVersion, v.MinorVersion, v.BuildNumber, v.ProductType, windows.GetCurrentProcessToken().IsElevated())
 	r := NewRunner(SystemProbes())
 	start := time.Now()
 	readings, reports := r.Run()
 	took := time.Since(start)
+	if v.ProductType != verNTWorkstation && readings.SecurityCenter.State != proof.AvailNotApplicable {
+		t.Errorf("Security Center on a server edition must be not_applicable, got %v", readings.SecurityCenter.State)
+	}
 	if took > DefaultTimeout+5*time.Second {
 		t.Errorf("checks took %v", took)
 	}

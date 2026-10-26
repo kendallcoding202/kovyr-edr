@@ -158,6 +158,30 @@ func TestEveryAllowlistedServiceMapsToARealVendor(t *testing.T) {
 	}
 }
 
+func TestApplyMDEOnboarding(t *testing.T) {
+	list := func() []Service {
+		return []Service{{Name: "Sense", Running: false}, {Name: "CSFalconService", Running: false}}
+	}
+	// Not onboarded (Windows ships Sense everywhere): Sense is not an
+	// installed EDR, so no "not running" alarm. Other vendors are kept.
+	for _, ob := range []proof.Toggle{proof.ToggleOff, proof.ToggleUnknown} {
+		got := EDRFrom(ApplyMDEOnboarding(list(), ob), nil)
+		if len(got.Agents) != 1 || got.Agents[0].Vendor != proof.VendorCrowdStrike {
+			t.Errorf("onboarding %v: %+v", ob, got.Agents)
+		}
+	}
+	// Onboarded but stopped: that is the tamper case, keep it.
+	got := EDRFrom(ApplyMDEOnboarding(list(), proof.ToggleOn), nil)
+	if len(got.Agents) != 2 {
+		t.Errorf("onboarded: %+v", got.Agents)
+	}
+	// Running implies onboarded, whatever the registry says.
+	running := []Service{{Name: "SENSE", Running: true}}
+	if got := ApplyMDEOnboarding(running, proof.ToggleOff); len(got) != 1 {
+		t.Errorf("running Sense dropped: %+v", got)
+	}
+}
+
 func TestBitLockerFrom(t *testing.T) {
 	cases := []struct {
 		status uint32

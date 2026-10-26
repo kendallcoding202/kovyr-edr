@@ -171,6 +171,25 @@ func EDRServiceNames() []string {
 	return out
 }
 
+// senseService is the Defender for Endpoint sensor. Windows ships it on
+// every install, but it only runs once the machine is onboarded to MDE.
+const senseService = "sense"
+
+// ApplyMDEOnboarding drops the Sense service when Defender for Endpoint is
+// not deployed here (not onboarded and not running), so an un-onboarded
+// machine is not reported as "MDE agent not running". An onboarded machine
+// whose Sense service stopped is kept: that is the tamper case.
+func ApplyMDEOnboarding(services []Service, onboarded proof.Toggle) []Service {
+	out := services[:0:0]
+	for _, s := range services {
+		if strings.EqualFold(strings.TrimSpace(s.Name), senseService) && !s.Running && onboarded != proof.ToggleOn {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
 // EDRFrom reduces services to {vendor, running}, one entry per vendor
 // (running if any of its services runs). Names not on the allowlist are
 // dropped here and never stored.

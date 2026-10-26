@@ -8,6 +8,8 @@ import (
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 	"golang.org/x/sys/windows/svc/mgr"
+
+	"github.com/kendallcoding202/kovyr-edr/internal/proof"
 )
 
 // SystemProbes returns the real Windows probes. Every probe is a read:
@@ -17,10 +19,20 @@ func SystemProbes() Probes { return windowsProbes{} }
 
 type windowsProbes struct{}
 
+// verNTWorkstation is OSVERSIONINFOEX.wProductType for client editions;
+// servers and domain controllers report 2 or 3.
+const verNTWorkstation = 1
+
+func isWorkstation() bool { return windows.RtlGetVersion().ProductType == verNTWorkstation }
+
 func (windowsProbes) AVProductStates() ([]uint32, error) {
+	// Security Center is a client-edition feature. On Windows Server
+	// (including CI runners) the namespace is missing, or present with no
+	// products registered, which must not read as "no antivirus".
+	if !isWorkstation() {
+		return nil, fmt.Errorf("%w: Windows Server edition", ErrNotApplicable)
+	}
 	var rows []struct{ ProductState *uint32 }
-	// Not on Windows Server (incl. CI runners): invalid namespace, which
-	// classifyWMI turns into ErrNotApplicable.
 	if err := wmiQuery(`root\SecurityCenter2`, "SELECT productState FROM AntiVirusProduct", &rows); err != nil {
 		return nil, err
 	}
@@ -55,7 +67,24 @@ func (windowsProbes) Services() ([]Service, error) {
 	}
 	m := &mgr.Mgr{Handle: h}
 	defer m.Disconnect()
-	return listServices(m)
+	services, err := listServices(m)
+	if err != nil {
+		return nil, err
+	}
+	return ApplyMDEOnboarding(services, mdeOnboarded()), nil
+}
+
+// mdeOnboarded reads the Defender for Endpoint onboarding state, the value
+// Microsoft's onboarding troubleshooting guide checks: 1 means onboarded.
+func mdeOnboarded() proof.Toggle {
+	v, err := readDWORD(`SOFTWARE\Microsoft\Windows Advanced Threat Protection\Status`, "OnboardingState")
+	switch {
+	case err == nil && v == 1:
+		return proof.ToggleOn
+	case err == nil || errors.Is(err, ErrNotFound):
+		return proof.ToggleOff
+	}
+	return proof.ToggleUnknown
 }
 
 // listServices is mgr.ListServices keeping each service's state: the

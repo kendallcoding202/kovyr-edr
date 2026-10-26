@@ -21,9 +21,10 @@ jobs:
       # another toolchain.
       GOTOOLCHAIN: local
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-go@v5
+      # Installs exactly the go directive's version (1.24.7).
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
 
@@ -44,9 +45,9 @@ jobs:
           GOARCH: amd64
         run: go build -o dist/ ./cmd/kovyr-agent ./cmd/kovyr-receiver-dev
 
-      - name: Real Windows checks (integration)
+      - name: Real Windows checks and DPAPI key store (integration)
         if: runner.os == 'Windows'
-        run: go test -count=1 -v -run TestRealWindowsChecks ./internal/checks/
+        run: go test -count=1 -v -run "TestRealWindowsChecks|TestDPAPI|TestKeyFileHoldsNoPlainKey|TestGenerateLoadRoundTrip" ./internal/checks/ ./internal/keystore/
 
       - name: kovyr-agent check on this runner
         if: runner.os == 'Windows'

@@ -66,6 +66,12 @@ func TestVerifyRejectsTampering(t *testing.T) {
 	if err := forged.Verify(s.Public()); !errors.Is(err, ErrBadSignature) {
 		t.Errorf("forged keyid: got %v", err)
 	}
+	// A valid signature under a keyid that names some other key.
+	misnamed := *env
+	misnamed.Signatures = []Signature{{KeyID: other.Public().KeyID(), Sig: env.Signatures[0].Sig}}
+	if err := misnamed.Verify(s.Public()); err == nil || errors.Is(err, ErrBadSignature) {
+		t.Errorf("keyid naming another key: got %v, want a keyid error", err)
+	}
 	high := *env
 	high.Signatures = []Signature{{KeyID: env.Signatures[0].KeyID, Sig: highS(env.Signatures[0].Sig)}}
 	if err := high.Verify(s.Public()); !errors.Is(err, ErrHighS) {

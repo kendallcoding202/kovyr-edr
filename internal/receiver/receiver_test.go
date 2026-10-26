@@ -363,8 +363,32 @@ func TestTamperSignalsRaiseOnceAndClear(t *testing.T) {
 		t.Errorf("an ongoing condition raised again: %v", res.Events)
 	}
 	s := statusOf(t, r, d)
-	if !s.HasSignal(EvProtectionOff) || !s.HasSignal(EvTamperOff) || !s.HasSignal(EvEDRNotRunning) {
-		t.Errorf("active signals %v", s.TamperSignals)
+	want := []string{ // sorted
+		"edr_not_running:huntress",
+		"protection_off:defender_real_time_protection",
+		"protection_off:firewall_1_of_3_profiles_on",
+		"tamper_protection_off:defender",
+	}
+	if len(s.TamperSignals) != len(want) {
+		t.Errorf("active signals %v, want %v", s.TamperSignals, want)
+	}
+	for i, w := range want {
+		if i < len(s.TamperSignals) && s.TamperSignals[i] != w {
+			t.Errorf("active signal %d is %q, want %q", i, s.TamperSignals[i], w)
+		}
+	}
+	// Each Defender switch is a signal on its own, and so is Security
+	// Center listing antivirus with none of it on.
+	for detail, f := range map[string]func(*proof.Readings){
+		"defender_antivirus":   func(rd *proof.Readings) { rd.Defender.Antivirus = proof.ToggleOff },
+		"defender_service":     func(rd *proof.Readings) { rd.Defender.AMService = proof.ToggleOff },
+		"no_enabled_antivirus": func(rd *proof.Readings) { rd.SecurityCenter.Enabled = 0 },
+	} {
+		st := &proof.Statement{Readings: healthy()}
+		f(&st.Readings)
+		if !conditions(st)[EvProtectionOff+":"+detail] {
+			t.Errorf("%s is not a protection_off signal", detail)
+		}
 	}
 	r.Receive(d.next(t, r, c, opt{}))
 	if s := statusOf(t, r, d); len(s.TamperSignals) != 0 {

@@ -341,6 +341,7 @@ Common fields, with the names and formats of the posture common fields
 | `sensor_health` | the 6.4 schema, unchanged: `sensor_running`, `tamper_detected` (booleans), `driver_blocklist_version`, `policy_version` (integers 0 to 2^53 − 1) |
 | `schedule` | when the agent reports, below |
 | `protection` | the protection checks, below |
+| `tripwire` | the ransomware tripwire, below |
 
 **No tenant yet.** `tenant` (6.2) and the link from `seq` 1 to the
 attester's enrollment record arrive with endpoint enrollment. Until then an
@@ -389,6 +390,35 @@ record per vendor, never a service or process name; `total` is the number of
 vendors found. If more are found than fit, agents that are **not** running
 are kept first (they are the alarm), then the rest by vendor name, and
 `truncated` is `true`.
+
+**`tripwire`.** The agent watches a bounded set of folders (each user's
+Desktop and Documents and any configured data folders, at most 32) for the
+file activity ransomware causes. It is read-only: it receives the operating
+system's change notifications, counts them in a sliding window and never
+opens, reads, hashes or creates a file. `state` is `ok` (watching),
+`unknown` (it could not watch) or `not_applicable`; a tripwire that is not
+watching claims nothing else. When `ok`:
+
+| Field | Type |
+|---|---|
+| `triggered` | boolean: the tripwire fired since the previous statement |
+| `reason` | enum `none`, `mass_extension_change`, `ransom_notes`; `none` exactly when `triggered` is false |
+| `window` | enum `10s`, `30s`, `60s`, `120s`, `300s`: the sliding window |
+| `folders_watched` | integer 0 to 32 |
+| `renamed`, `extension_changed`, `modified`, `deleted`, `suspicious_created`, `unknown_activity` | bucket enum `0`, `1_9`, `10_99`, `100_999`, `1000_plus` |
+
+The buckets count the changes in the window that tripped (when `triggered`)
+or in the busiest window since the previous statement. `renamed` counts all
+renames and `extension_changed` the renames to a different extension
+(temporary-file renames excluded); `suspicious_created` counts files created
+with a ransom-note or random-looking name; `unknown_activity` counts
+notification-buffer overflows, when changes came too fast to count. A
+statement never carries a path, a file name, an extension or a process name,
+and counts are bucketed so it does not show how much a person works.
+
+When the tripwire fires the agent sends a statement at once, between its
+scheduled heartbeats (at most one such statement per cooldown, ten minutes by
+default); later trips are reported in the next heartbeat.
 
 ## 7. Envelopes
 
@@ -693,6 +723,11 @@ predicate version.
   such records prove less than a live report: they would form a separate,
   lower evidence strength (for example *offline, TPM-clocked*), be shown as
   such, and never close a gap by themselves.
+* **Decoy files.** A tripwire could also plant decoy files ("canaries") in
+  the watched folders and alarm when one is touched, which catches
+  ransomware sooner and with fewer false alarms. It means creating files on
+  the customer's machine, which the read-only rule forbids; it needs its own
+  decision.
 * **Signed delivery receipts.** Each report could carry the highest `seq`
   the ingest server acknowledged. A verifier could then tell a report that
   never reached the log (disclosed as lost) from one the log holds but a

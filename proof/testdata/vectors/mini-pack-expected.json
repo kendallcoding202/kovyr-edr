@@ -1,0 +1,49 @@
+{
+  "steps": {
+    "checkpoint": "pass",
+    "consistency": "pass",
+    "content": "pass",
+    "enrollment": "pass",
+    "gaps": "pass",
+    "inclusion": "pass",
+    "sequence": "pass",
+    "signatures": "pass",
+    "timestamps": "pass",
+    "witnesses": "pass"
+  },
+  "summary": {
+    "coverage": {
+      "accounts_mfa": 0,
+      "accounts_passkey": 0,
+      "accounts_total": 0,
+      "connector_reports": 0,
+      "device_enrollments": 2,
+      "devices_enrolled": 0,
+      "devices_known": 0,
+      "devices_unknown_seen": 0
+    },
+    "gaps": [
+      {
+        "attester": "dev_818bee8570a01f3f",
+        "attester_kind": "device_agent",
+        "days": 1,
+        "device_number": 2,
+        "from": "2026-10-02",
+        "to": "2026-10-02"
+      }
+    ],
+    "lapses": []
+  },
+  "tampered": {
+    "entry_index": 5,
+    "failed_steps": [
+      "signatures",
+      "sequence",
+      "timestamps",
+      "inclusion",
+      "gaps"
+    ],
+    "how": "In the entry at log index 5 (device 1, Oct 2), change disk_encryption \"on\" to \"off\" inside the payload and re-encode it."
+  },
+  "verified": true
+}

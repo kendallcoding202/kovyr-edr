@@ -1,0 +1,72 @@
+{
+  "device_key": {
+    "alg": "ecdsa-p256-sha256",
+    "keyid": "dac5309a5f44fd079a29e47f1a0337ac47e753a86ff252715c51e749e38fcfc0",
+    "pkcs8": "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgi1fTP7Jxr4+qK35+sch4MX/ojeP5knsDld/kvDtMUGuhRANCAASlMPOF9ONip9H1eT6lpuxAA7hBRh18x7KgewSyfrVA7wvRO650LdBpu+/OaKYFNlGwuZpFuIaK75L8nPwGLtwl",
+    "spki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEpTDzhfTjYqfR9Xk+pabsQAO4QUYdfMeyoHsEsn61QO8L0TuudC3QabvvzmimBTZRsLmaRbiGiu+S/Jz8Bi7cJQ=="
+  },
+  "entry_digest_hex": "b8219824a3598845ff95b6895b900ea4094db2aaff5b99f1b63afa5c68c98435",
+  "envelope_canonical": "{\"payload\":\"eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJwcmVkaWNhdGUiOnsiYXR0ZXN0ZXIiOiJkZXZfZGFjNTMwOWE1ZjQ0ZmQwNyIsImF0dGVzdGVyX2tpbmQiOiJkZXZpY2VfYWdlbnQiLCJkZXZpY2UiOnsiZGlza19lbmNyeXB0aW9uIjoib2ZmIiwiZWRyX2tpbmQiOiJkZWZlbmRlciIsImVkcl9ydW5uaW5nIjpmYWxzZSwiZmlyZXdhbGxfb24iOnRydWUsImhlYXJ0YmVhdF9pbnRlcnZhbF9zIjozMDAsImhlYXJ0YmVhdHNfMjRoIjo3LCJsb2NhbF9hZG1pbl9jb3VudCI6MSwib3NfcGF0Y2hfc3RhdHVzIjoidXBkYXRlc19wZW5kaW5nIiwic2NyZWVuX2xvY2tfbWF4X2lkbGVfbWluIjoxMCwic2NyZWVuX2xvY2tfb24iOnRydWUsInVuYXBwcm92ZWRfcmVtb3RlX3Rvb2xzIjp7Iml0ZW1zIjpbeyJjb3VudCI6MSwia2luZCI6ImFueWRlc2sifV0sInRvdGFsIjoxLCJ0cnVuY2F0ZWQiOmZhbHNlfX0sIm5vbmNlIjoiOTdkOTA2MGNmMjE4NTllOTVjNDU3NDMzZWZmNGMwNzYiLCJvYnNlcnZlZF9hdCI6IjIwMjYtMTAtMTRUMTQ6MDU6MTJaIiwicHJldiI6IjI5NjVjMTA3MTk5NDBkNzA1Nzc2ZTkyODhkOGIzMDMxMzdlMTJhODI1MTI0MWRmYmI2Mjg1YTgxZjE3YjlmNjEiLCJzYWx0IjoiMDRmYWUzZjNiZGIxZGFlZGZjNzY2NTNkYmRkNGZkMGQ3YTQ0OTNmYzg0YzBiZmU0MmVlNTEyY2I1NzJkMTVmZCIsInNlcSI6MTIsInRlbmFudCI6InRudF8wYTlkNTY4NGFiN2RiY2EwIn0sInByZWRpY2F0ZVR5cGUiOiJodHRwczovL2tvdnlyLmNvbS9hdHRlc3RhdGlvbi9wb3N0dXJlL3YxIiwic3ViamVjdCI6W3siZGlnZXN0Ijp7InNoYTI1NiI6ImRhYzUzMDlhNWY0NGZkMDc5YTI5ZTQ3ZjFhMDMzN2FjNDdlNzUzYTg2ZmYyNTI3MTVjNTFlNzQ5ZTM4ZmNmYzAifSwibmFtZSI6ImRldl9kYWM1MzA5YTVmNDRmZDA3In1dfQ==\",\"payloadType\":\"application/vnd.in-toto+json\",\"signatures\":[{\"keyid\":\"dac5309a5f44fd079a29e47f1a0337ac47e753a86ff252715c51e749e38fcfc0\",\"sig\":\"iru7U7p5yedG6NzmGrudtFJcdhwcz5h7lpHPCDKhPY5k6xnspvixuscgBi995w4VTfAJOYnBs2MJIXU0CpFXCA==\"}]}",
+  "leaf_hash_hex": "c6dac9e897f0d073ab313f973f31551b36ffd38dc8fd1dc9f045bfe981abed6c",
+  "must_reject_payloads": [
+    {
+      "name": "host name smuggled in",
+      "payload": "{\"_type\":\"https://in-toto.io/Statement/v1\",\"predicate\":{\"attester\":\"dev_dac5309a5f44fd07\",\"attester_kind\":\"device_agent\",\"device\":{\"disk_encryption\":\"off\",\"edr_kind\":\"defender\",\"edr_running\":false,\"firewall_on\":true,\"heartbeat_interval_s\":300,\"heartbeats_24h\":7,\"hostname\":\"MARIA-LAPTOP\",\"local_admin_count\":1,\"os_patch_status\":\"updates_pending\",\"screen_lock_max_idle_min\":10,\"screen_lock_on\":true,\"unapproved_remote_tools\":{\"items\":[{\"count\":1,\"kind\":\"anydesk\"}],\"total\":1,\"truncated\":false}},\"nonce\":\"97d9060cf21859e95c457433eff4c076\",\"observed_at\":\"2026-10-14T14:05:12Z\",\"prev\":\"2965c10719940d705776e9288d8b303137e12a8251241dfbb6285a81f17b9f61\",\"salt\":\"04fae3f3bdb1daedfc76653dbdd4fd0d7a4493fc84c0bfe42ee512cb572d15fd\",\"seq\":12,\"tenant\":\"tnt_0a9d5684ab7dbca0\"},\"predicateType\":\"https://kovyr.com/attestation/posture/v1\",\"subject\":[{\"digest\":{\"sha256\":\"dac5309a5f44fd079a29e47f1a0337ac47e753a86ff252715c51e749e38fcfc0\"},\"name\":\"dev_dac5309a5f44fd07\"}]}"
+    },
+    {
+      "name": "path in an enum",
+      "payload": "{\"_type\":\"https://in-toto.io/Statement/v1\",\"predicate\":{\"attester\":\"dev_dac5309a5f44fd07\",\"attester_kind\":\"device_agent\",\"device\":{\"disk_encryption\":\"C:/Users/maria\",\"edr_kind\":\"defender\",\"edr_running\":false,\"firewall_on\":true,\"heartbeat_interval_s\":300,\"heartbeats_24h\":7,\"local_admin_count\":1,\"os_patch_status\":\"updates_pending\",\"screen_lock_max_idle_min\":10,\"screen_lock_on\":true,\"unapproved_remote_tools\":{\"items\":[{\"count\":1,\"kind\":\"anydesk\"}],\"total\":1,\"truncated\":false}},\"nonce\":\"97d9060cf21859e95c457433eff4c076\",\"observed_at\":\"2026-10-14T14:05:12Z\",\"prev\":\"2965c10719940d705776e9288d8b303137e12a8251241dfbb6285a81f17b9f61\",\"salt\":\"04fae3f3bdb1daedfc76653dbdd4fd0d7a4493fc84c0bfe42ee512cb572d15fd\",\"seq\":12,\"tenant\":\"tnt_0a9d5684ab7dbca0\"},\"predicateType\":\"https://kovyr.com/attestation/posture/v1\",\"subject\":[{\"digest\":{\"sha256\":\"dac5309a5f44fd079a29e47f1a0337ac47e753a86ff252715c51e749e38fcfc0\"},\"name\":\"dev_dac5309a5f44fd07\"}]}"
+    },
+    {
+      "name": "boolean as string",
+      "payload": "{\"_type\":\"https://in-toto.io/Statement/v1\",\"predicate\":{\"attester\":\"dev_dac5309a5f44fd07\",\"attester_kind\":\"device_agent\",\"device\":{\"disk_encryption\":\"off\",\"edr_kind\":\"defender\",\"edr_running\":false,\"firewall_on\":\"true\",\"heartbeat_interval_s\":300,\"heartbeats_24h\":7,\"local_admin_count\":1,\"os_patch_status\":\"updates_pending\",\"screen_lock_max_idle_min\":10,\"screen_lock_on\":true,\"unapproved_remote_tools\":{\"items\":[{\"count\":1,\"kind\":\"anydesk\"}],\"total\":1,\"truncated\":false}},\"nonce\":\"97d9060cf21859e95c457433eff4c076\",\"observed_at\":\"2026-10-14T14:05:12Z\",\"prev\":\"2965c10719940d705776e9288d8b303137e12a8251241dfbb6285a81f17b9f61\",\"salt\":\"04fae3f3bdb1daedfc76653dbdd4fd0d7a4493fc84c0bfe42ee512cb572d15fd\",\"seq\":12,\"tenant\":\"tnt_0a9d5684ab7dbca0\"},\"predicateType\":\"https://kovyr.com/attestation/posture/v1\",\"subject\":[{\"digest\":{\"sha256\":\"dac5309a5f44fd079a29e47f1a0337ac47e753a86ff252715c51e749e38fcfc0\"},\"name\":\"dev_dac5309a5f44fd07\"}]}"
+    },
+    {
+      "name": "float count",
+      "payload": "{\"_type\":\"https://in-toto.io/Statement/v1\",\"predicate\":{\"attester\":\"dev_dac5309a5f44fd07\",\"attester_kind\":\"device_agent\",\"device\":{\"disk_encryption\":\"off\",\"edr_kind\":\"defender\",\"edr_running\":false,\"firewall_on\":true,\"heartbeat_interval_s\":300,\"heartbeats_24h\":7,\"local_admin_count\":1.0,\"os_patch_status\":\"updates_pending\",\"screen_lock_max_idle_min\":10,\"screen_lock_on\":true,\"unapproved_remote_tools\":{\"items\":[{\"count\":1,\"kind\":\"anydesk\"}],\"total\":1,\"truncated\":false}},\"nonce\":\"97d9060cf21859e95c457433eff4c076\",\"observed_at\":\"2026-10-14T14:05:12Z\",\"prev\":\"2965c10719940d705776e9288d8b303137e12a8251241dfbb6285a81f17b9f61\",\"salt\":\"04fae3f3bdb1daedfc76653dbdd4fd0d7a4493fc84c0bfe42ee512cb572d15fd\",\"seq\":12,\"tenant\":\"tnt_0a9d5684ab7dbca0\"},\"predicateType\":\"https://kovyr.com/attestation/posture/v1\",\"subject\":[{\"digest\":{\"sha256\":\"dac5309a5f44fd079a29e47f1a0337ac47e753a86ff252715c51e749e38fcfc0\"},\"name\":\"dev_dac5309a5f44fd07\"}]}"
+    },
+    {
+      "name": "unknown predicate field",
+      "payload": "{\"_type\":\"https://in-toto.io/Statement/v1\",\"predicate\":{\"attester\":\"dev_dac5309a5f44fd07\",\"attester_kind\":\"device_agent\",\"device\":{\"disk_encryption\":\"off\",\"edr_kind\":\"defender\",\"edr_running\":false,\"firewall_on\":true,\"heartbeat_interval_s\":300,\"heartbeats_24h\":7,\"local_admin_count\":1,\"os_patch_status\":\"updates_pending\",\"screen_lock_max_idle_min\":10,\"screen_lock_on\":true,\"unapproved_remote_tools\":{\"items\":[{\"count\":1,\"kind\":\"anydesk\"}],\"total\":1,\"truncated\":false}},\"nonce\":\"97d9060cf21859e95c457433eff4c076\",\"observed_at\":\"2026-10-14T14:05:12Z\",\"prev\":\"2965c10719940d705776e9288d8b303137e12a8251241dfbb6285a81f17b9f61\",\"salt\":\"04fae3f3bdb1daedfc76653dbdd4fd0d7a4493fc84c0bfe42ee512cb572d15fd\",\"note\":\"free text\",\"seq\":12,\"tenant\":\"tnt_0a9d5684ab7dbca0\"},\"predicateType\":\"https://kovyr.com/attestation/posture/v1\",\"subject\":[{\"digest\":{\"sha256\":\"dac5309a5f44fd079a29e47f1a0337ac47e753a86ff252715c51e749e38fcfc0\"},\"name\":\"dev_dac5309a5f44fd07\"}]}"
+    },
+    {
+      "name": "domain name in a scan statement",
+      "payload": "{\"_type\":\"https://in-toto.io/Statement/v1\",\"predicate\":{\"attester\":\"scn_2bc34b5290b88a18\",\"attester_kind\":\"external_scanner\",\"nonce\":\"97d9060cf21859e95c457433eff4c076\",\"observed_at\":\"2026-10-14T14:05:12Z\",\"prev\":\"2965c10719940d705776e9288d8b303137e12a8251241dfbb6285a81f17b9f61\",\"salt\":\"04fae3f3bdb1daedfc76653dbdd4fd0d7a4493fc84c0bfe42ee512cb572d15fd\",\"scan\":{\"results\":{\"items\":[{\"check_id\":\"EMAIL-04\",\"severity\":\"medium\",\"status\":\"warn\"},{\"check_id\":\"TLS-01\",\"severity\":\"info\",\"status\":\"pass\"}],\"total\":2,\"truncated\":false},\"domain\":\"maplestreet.example\",\"source\":\"external_scan\"},\"seq\":3,\"tenant\":\"tnt_0a9d5684ab7dbca0\"},\"predicateType\":\"https://kovyr.com/attestation/posture/v1\",\"subject\":[{\"digest\":{\"sha256\":\"2bc34b5290b88a18838089c789f82e92633c778e4d3c1e472260dbcee404685a\"},\"name\":\"scn_2bc34b5290b88a18\"}]}"
+    }
+  ],
+  "notes": "payload_sha256 is the chain hash the next statement puts in prev. entry_digest = SHA-256(envelope_canonical) is what the public log stores and what timestamp authorities sign; leaf_hash = SHA-256(0x00||entry_digest).",
+  "payload_canonical": "{\"_type\":\"https://in-toto.io/Statement/v1\",\"predicate\":{\"attester\":\"dev_dac5309a5f44fd07\",\"attester_kind\":\"device_agent\",\"device\":{\"disk_encryption\":\"off\",\"edr_kind\":\"defender\",\"edr_running\":false,\"firewall_on\":true,\"heartbeat_interval_s\":300,\"heartbeats_24h\":7,\"local_admin_count\":1,\"os_patch_status\":\"updates_pending\",\"screen_lock_max_idle_min\":10,\"screen_lock_on\":true,\"unapproved_remote_tools\":{\"items\":[{\"count\":1,\"kind\":\"anydesk\"}],\"total\":1,\"truncated\":false}},\"nonce\":\"97d9060cf21859e95c457433eff4c076\",\"observed_at\":\"2026-10-14T14:05:12Z\",\"prev\":\"2965c10719940d705776e9288d8b303137e12a8251241dfbb6285a81f17b9f61\",\"salt\":\"04fae3f3bdb1daedfc76653dbdd4fd0d7a4493fc84c0bfe42ee512cb572d15fd\",\"seq\":12,\"tenant\":\"tnt_0a9d5684ab7dbca0\"},\"predicateType\":\"https://kovyr.com/attestation/posture/v1\",\"subject\":[{\"digest\":{\"sha256\":\"dac5309a5f44fd079a29e47f1a0337ac47e753a86ff252715c51e749e38fcfc0\"},\"name\":\"dev_dac5309a5f44fd07\"}]}",
+  "payload_sha256_hex": "8c4889300c6f9cb03ab646de57eb64d20f06e993567869a0e97f82b70686acff",
+  "predicate_type": "https://kovyr.com/attestation/posture/v1",
+  "scan_envelope_canonical": "{\"payload\":\"eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJwcmVkaWNhdGUiOnsiYXR0ZXN0ZXIiOiJzY25fMmJjMzRiNTI5MGI4OGExOCIsImF0dGVzdGVyX2tpbmQiOiJleHRlcm5hbF9zY2FubmVyIiwibm9uY2UiOiI5N2Q5MDYwY2YyMTg1OWU5NWM0NTc0MzNlZmY0YzA3NiIsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNFQxNDowNToxMloiLCJwcmV2IjoiMjk2NWMxMDcxOTk0MGQ3MDU3NzZlOTI4OGQ4YjMwMzEzN2UxMmE4MjUxMjQxZGZiYjYyODVhODFmMTdiOWY2MSIsInNhbHQiOiIwNGZhZTNmM2JkYjFkYWVkZmM3NjY1M2RiZGQ0ZmQwZDdhNDQ5M2ZjODRjMGJmZTQyZWU1MTJjYjU3MmQxNWZkIiwic2NhbiI6eyJyZXN1bHRzIjp7Iml0ZW1zIjpbeyJjaGVja19pZCI6IkVNQUlMLTA0Iiwic2V2ZXJpdHkiOiJtZWRpdW0iLCJzdGF0dXMiOiJ3YXJuIn0seyJjaGVja19pZCI6IlRMUy0wMSIsInNldmVyaXR5IjoiaW5mbyIsInN0YXR1cyI6InBhc3MifV0sInRvdGFsIjoyLCJ0cnVuY2F0ZWQiOmZhbHNlfSwic291cmNlIjoiZXh0ZXJuYWxfc2NhbiJ9LCJzZXEiOjMsInRlbmFudCI6InRudF8wYTlkNTY4NGFiN2RiY2EwIn0sInByZWRpY2F0ZVR5cGUiOiJodHRwczovL2tvdnlyLmNvbS9hdHRlc3RhdGlvbi9wb3N0dXJlL3YxIiwic3ViamVjdCI6W3siZGlnZXN0Ijp7InNoYTI1NiI6IjJiYzM0YjUyOTBiODhhMTg4MzgwODljNzg5ZjgyZTkyNjMzYzc3OGU0ZDNjMWU0NzIyNjBkYmNlZTQwNDY4NWEifSwibmFtZSI6InNjbl8yYmMzNGI1MjkwYjg4YTE4In1dfQ==\",\"payloadType\":\"application/vnd.in-toto+json\",\"signatures\":[{\"keyid\":\"2bc34b5290b88a18838089c789f82e92633c778e4d3c1e472260dbcee404685a\",\"sig\":\"Z4/m+KGZlRQe+oc1ARKmVwSwssaLPa49YBqIVLoVjTK73CQcgSOxWsBRGLo3Q4Gz/Iv1TCCv0yVxdc1hgibhDQ==\"}]}",
+  "scan_payload_canonical": "{\"_type\":\"https://in-toto.io/Statement/v1\",\"predicate\":{\"attester\":\"scn_2bc34b5290b88a18\",\"attester_kind\":\"external_scanner\",\"nonce\":\"97d9060cf21859e95c457433eff4c076\",\"observed_at\":\"2026-10-14T14:05:12Z\",\"prev\":\"2965c10719940d705776e9288d8b303137e12a8251241dfbb6285a81f17b9f61\",\"salt\":\"04fae3f3bdb1daedfc76653dbdd4fd0d7a4493fc84c0bfe42ee512cb572d15fd\",\"scan\":{\"results\":{\"items\":[{\"check_id\":\"EMAIL-04\",\"severity\":\"medium\",\"status\":\"warn\"},{\"check_id\":\"TLS-01\",\"severity\":\"info\",\"status\":\"pass\"}],\"total\":2,\"truncated\":false},\"source\":\"external_scan\"},\"seq\":3,\"tenant\":\"tnt_0a9d5684ab7dbca0\"},\"predicateType\":\"https://kovyr.com/attestation/posture/v1\",\"subject\":[{\"digest\":{\"sha256\":\"2bc34b5290b88a18838089c789f82e92633c778e4d3c1e472260dbcee404685a\"},\"name\":\"scn_2bc34b5290b88a18\"}]}",
+  "scanner_key": {
+    "alg": "ed25519",
+    "keyid": "2bc34b5290b88a18838089c789f82e92633c778e4d3c1e472260dbcee404685a",
+    "pkcs8": "MC4CAQAwBQYDK2VwBCIEIB8NIHTip+ggAdXfQpa/Pzmd3Fu2b1jAvDDbouW0yo0b",
+    "spki": "MCowBQYDK2VwAyEAY+iaaPAqng/x3UquRZeFgK9oNEQh1rVTi8xl4ffflC8="
+  },
+  "tenant_key": {
+    "alg": "ecdsa-p256-sha256",
+    "keyid": "0a9d5684ab7dbca09569c77253a69426baad2894e06b9a31182fae3f131a5ffb",
+    "pkcs8": "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgSFKHrTI8OhRej9vJQLrC92EOusGHZoFANOSrRrSBnbShRANCAASZzVhtJYsVsWGwavmuNiliRQWnxbD4vTTM1T2F0Q/2bF3Ntj6JGuQC6ybMxXsys7ejjAhxXtYfiucsOvCJ/VMo",
+    "spki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEmc1YbSWLFbFhsGr5rjYpYkUFp8Ww+L00zNU9hdEP9mxdzbY+iRrkAusmzMV7MrO3o4wIcV7WH4rnLDrwif1TKA=="
+  },
+  "timestamp_token": {
+    "kind": "simulated-tsa/v1",
+    "sig": "yeZuEryjIkPFV6083iMXCYqPPry+oCCFejO6lePdcDAHH+wJ95gvpcHfHxQJ4JsKjUcAGVj4Jt72jb9iV+6uCA==",
+    "tst": {
+      "gen_time": "2026-10-14T14:05:23Z",
+      "imprint": "b8219824a3598845ff95b6895b900ea4094db2aaff5b99f1b63afa5c68c98435",
+      "serial": 1791986723000,
+      "tsa": "tsa-vector.example"
+    }
+  },
+  "tsa_key": {
+    "alg": "ed25519",
+    "keyid": "adcc2b683b5f02a097f45b6d279a6a7a653c9f89b51825d5102d4877db4112de",
+    "pkcs8": "MC4CAQAwBQYDK2VwBCIEII01uGhunXPvId6uMcoXjBtT9jTTUxFKlcIBsCBpdLBJ",
+    "spki": "MCowBQYDK2VwAyEAXyLkOnNUi9X3nCANxFNmvZM9Pau01eDYWJ2mwuYbmLQ="
+  },
+  "tsa_signed_message": "simulated-tsa/v1\n{\"gen_time\":\"2026-10-14T14:05:23Z\",\"imprint\":\"b8219824a3598845ff95b6895b900ea4094db2aaff5b99f1b63afa5c68c98435\",\"serial\":1791986723000,\"tsa\":\"tsa-vector.example\"}"
+}

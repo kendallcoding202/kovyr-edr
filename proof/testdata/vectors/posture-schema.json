@@ -1,0 +1,612 @@
+{
+ "canonicalization": "strict-json-c14n/v1",
+ "in_toto_statement_type": "https://in-toto.io/Statement/v1",
+ "predicate_types": {
+  "enrollment": "https://kovyr.com/attestation/enrollment/v1",
+  "posture": "https://kovyr.com/attestation/posture/v1"
+ },
+ "schema_version": "posture-schema/v1",
+ "statements": {
+  "https://kovyr.com/attestation/enrollment/v1": {
+   "t": "object",
+   "fields": {
+    "_type": {
+     "t": "const",
+     "value": "https://in-toto.io/Statement/v1"
+    },
+    "predicate": {
+     "t": "object",
+     "fields": {
+      "enrolled_at": {
+       "t": "timestamp"
+      },
+      "kind": {
+       "t": "enum",
+       "values": [
+        "attester",
+        "tenant_genesis"
+       ]
+      },
+      "nonce": {
+       "t": "hex",
+       "len": 32
+      },
+      "salt": {
+       "t": "hex",
+       "len": 64
+      },
+      "tenant": {
+       "t": "id",
+       "prefixes": [
+        "tnt_"
+       ]
+      }
+     },
+     "switch": {
+      "on": "kind",
+      "cases": {
+       "attester": {
+        "attester": {
+         "t": "id",
+         "prefixes": [
+          "dev_",
+          "con_",
+          "stf_",
+          "scn_"
+         ]
+        },
+        "attester_key": {
+         "t": "spki"
+        },
+        "attester_key_alg": {
+         "t": "enum",
+         "values": [
+          "ecdsa-p256-sha256",
+          "ed25519"
+         ]
+        },
+        "attester_kind": {
+         "t": "enum",
+         "values": [
+          "cloud_connector",
+          "device_agent",
+          "external_scanner",
+          "staff_attester"
+         ]
+        },
+        "device_class": {
+         "t": "enum",
+         "values": [
+          "desktop",
+          "laptop",
+          "not_a_device",
+          "server"
+         ]
+        },
+        "device_number": {
+         "t": "int",
+         "min": 0,
+         "max": 9999
+        },
+        "enrollment_method": {
+         "t": "enum",
+         "values": [
+          "enrollment_code",
+          "owner_approval"
+         ]
+        },
+        "key_attestation": {
+         "t": "enum",
+         "values": [
+          "apple_mda",
+          "none",
+          "tpm2_quote"
+         ]
+        },
+        "key_protection": {
+         "t": "enum",
+         "values": [
+          "secure_enclave",
+          "software",
+          "tpm2"
+         ]
+        },
+        "platform": {
+         "t": "enum",
+         "values": [
+          "macos",
+          "microsoft_365",
+          "mobile_app",
+          "vendor_service",
+          "windows"
+         ]
+        },
+        "staff_role": {
+         "t": "enum",
+         "values": [
+          "bookkeeper",
+          "none",
+          "office_manager",
+          "owner"
+         ]
+        }
+       },
+       "tenant_genesis": {
+        "display_name_commitment": {
+         "t": "hex",
+         "len": 64
+        },
+        "tenant_key": {
+         "t": "spki"
+        },
+        "tenant_key_alg": {
+         "t": "enum",
+         "values": [
+          "ecdsa-p256-sha256",
+          "ed25519"
+         ]
+        }
+       }
+      }
+     }
+    },
+    "predicateType": {
+     "t": "const",
+     "value": "https://kovyr.com/attestation/enrollment/v1"
+    },
+    "subject": {
+     "t": "array",
+     "of": {
+      "t": "object",
+      "fields": {
+       "digest": {
+        "t": "object",
+        "fields": {
+         "sha256": {
+          "t": "hex",
+          "len": 64
+         }
+        }
+       },
+       "name": {
+        "t": "id",
+        "prefixes": [
+         "tnt_",
+         "dev_",
+         "con_",
+         "stf_",
+         "scn_"
+        ]
+       }
+      }
+     },
+     "min_items": 1,
+     "max_items": 1
+    }
+   }
+  },
+  "https://kovyr.com/attestation/posture/v1": {
+   "t": "object",
+   "fields": {
+    "_type": {
+     "t": "const",
+     "value": "https://in-toto.io/Statement/v1"
+    },
+    "predicate": {
+     "t": "object",
+     "fields": {
+      "attester": {
+       "t": "id",
+       "prefixes": [
+        "dev_",
+        "con_",
+        "stf_",
+        "scn_"
+       ]
+      },
+      "attester_kind": {
+       "t": "enum",
+       "values": [
+        "cloud_connector",
+        "device_agent",
+        "external_scanner",
+        "staff_attester"
+       ]
+      },
+      "nonce": {
+       "t": "hex",
+       "len": 32
+      },
+      "observed_at": {
+       "t": "timestamp"
+      },
+      "prev": {
+       "t": "hex",
+       "len": 64
+      },
+      "salt": {
+       "t": "hex",
+       "len": 64
+      },
+      "seq": {
+       "t": "int",
+       "min": 1,
+       "max": 2147483647
+      },
+      "tenant": {
+       "t": "id",
+       "prefixes": [
+        "tnt_"
+       ]
+      }
+     },
+     "switch": {
+      "on": "attester_kind",
+      "cases": {
+       "cloud_connector": {
+        "tenant_posture": {
+         "t": "object",
+         "fields": {
+          "accounts_mfa": {
+           "t": "int",
+           "min": 0,
+           "max": 100000
+          },
+          "accounts_passkey": {
+           "t": "int",
+           "min": 0,
+           "max": 100000
+          },
+          "accounts_total": {
+           "t": "int",
+           "min": 0,
+           "max": 100000
+          },
+          "admin_accounts": {
+           "t": "int",
+           "min": 0,
+           "max": 100000
+          },
+          "devices_enrolled": {
+           "t": "int",
+           "min": 0,
+           "max": 100000
+          },
+          "devices_known": {
+           "t": "int",
+           "min": 0,
+           "max": 100000
+          },
+          "devices_unknown_seen": {
+           "t": "int",
+           "min": 0,
+           "max": 100000
+          },
+          "mailbox_alerts_24h": {
+           "t": "counted_list",
+           "max_items": 5,
+           "kinds": [
+            "forwarding_rule_external",
+            "impossible_travel_approx",
+            "new_admin_role",
+            "new_auth_method",
+            "signin_unusual_country_approx"
+           ],
+           "max_count": 100000
+          },
+          "mailbox_alerts_open": {
+           "t": "int",
+           "min": 0,
+           "max": 100000
+          },
+          "mailbox_alerts_resolved_24h": {
+           "t": "int",
+           "min": 0,
+           "max": 100000
+          },
+          "source": {
+           "t": "enum",
+           "values": [
+            "microsoft_365"
+           ]
+          }
+         },
+         "le": [
+          [
+           "accounts_mfa",
+           "accounts_total"
+          ],
+          [
+           "accounts_passkey",
+           "accounts_total"
+          ],
+          [
+           "admin_accounts",
+           "accounts_total"
+          ]
+         ]
+        }
+       },
+       "device_agent": {
+        "device": {
+         "t": "object",
+         "fields": {
+          "disk_encryption": {
+           "t": "enum",
+           "values": [
+            "off",
+            "on",
+            "suspended",
+            "unknown"
+           ]
+          },
+          "edr_kind": {
+           "t": "enum",
+           "values": [
+            "defender",
+            "none",
+            "third_party"
+           ]
+          },
+          "edr_running": {
+           "t": "bool"
+          },
+          "firewall_on": {
+           "t": "bool"
+          },
+          "heartbeat_interval_s": {
+           "t": "int",
+           "min": 30,
+           "max": 3600
+          },
+          "heartbeats_24h": {
+           "t": "int",
+           "min": 0,
+           "max": 2880
+          },
+          "local_admin_count": {
+           "t": "int",
+           "min": 0,
+           "max": 64
+          },
+          "os_patch_status": {
+           "t": "enum",
+           "values": [
+            "current",
+            "out_of_date",
+            "unknown",
+            "unsupported_os",
+            "updates_pending"
+           ]
+          },
+          "screen_lock_max_idle_min": {
+           "t": "int",
+           "min": 0,
+           "max": 1440
+          },
+          "screen_lock_on": {
+           "t": "bool"
+          },
+          "unapproved_remote_tools": {
+           "t": "counted_list",
+           "max_items": 4,
+           "kinds": [
+            "anydesk",
+            "other_remote_tool",
+            "rustdesk",
+            "screenconnect",
+            "splashtop",
+            "teamviewer",
+            "ultraviewer",
+            "vnc"
+           ],
+           "max_count": 64
+          }
+         }
+        }
+       },
+       "external_scanner": {
+        "scan": {
+         "t": "object",
+         "fields": {
+          "results": {
+           "t": "result_list",
+           "of": {
+            "t": "object",
+            "fields": {
+             "check_id": {
+              "t": "enum",
+              "values": [
+               "BREACH-01",
+               "BREACH-02",
+               "DNS-01",
+               "EMAIL-01",
+               "EMAIL-02",
+               "EMAIL-03",
+               "EMAIL-04",
+               "EMAIL-05",
+               "HTTP-01",
+               "HTTP-02",
+               "HTTP-03",
+               "TLS-01",
+               "TLS-02",
+               "TLS-03"
+              ]
+             },
+             "severity": {
+              "t": "enum",
+              "values": [
+               "critical",
+               "high",
+               "info",
+               "low",
+               "medium"
+              ]
+             },
+             "status": {
+              "t": "enum",
+              "values": [
+               "error",
+               "fail",
+               "not_applicable",
+               "pass",
+               "warn"
+              ]
+             }
+            }
+           },
+           "max_items": 32,
+           "key": "check_id"
+          },
+          "source": {
+           "t": "enum",
+           "values": [
+            "external_scan"
+           ]
+          }
+         }
+        }
+       },
+       "staff_attester": {
+        "staff_event": {
+         "t": "object",
+         "fields": {
+          "kind": {
+           "t": "enum",
+           "values": [
+            "backup_restore_drill",
+            "verify_before_pay"
+           ]
+          }
+         },
+         "switch": {
+          "on": "kind",
+          "cases": {
+           "backup_restore_drill": {
+            "backup_restore_drill": {
+             "t": "object",
+             "fields": {
+              "files_restored": {
+               "t": "int",
+               "min": 0,
+               "max": 1000000
+              },
+              "minutes_to_restore": {
+               "t": "int",
+               "min": 0,
+               "max": 10080
+              },
+              "performed_at": {
+               "t": "timestamp"
+              },
+              "result": {
+               "t": "enum",
+               "values": [
+                "failed",
+                "partial",
+                "success"
+               ]
+              },
+              "second_person_verified": {
+               "t": "bool"
+              }
+             }
+            }
+           },
+           "verify_before_pay": {
+            "verify_before_pay": {
+             "t": "object",
+             "fields": {
+              "blocked": {
+               "t": "int",
+               "min": 0,
+               "max": 1000
+              },
+              "callback_verified": {
+               "t": "int",
+               "min": 0,
+               "max": 1000
+              },
+              "request_kinds": {
+               "t": "counted_list",
+               "max_items": 5,
+               "kinds": [
+                "bank_detail_change",
+                "payroll_change",
+                "refund_redirect",
+                "vendor_invoice_change",
+                "wire_transfer"
+               ],
+               "max_count": 1000
+              },
+              "requests": {
+               "t": "int",
+               "min": 1,
+               "max": 1000
+              },
+              "second_approver": {
+               "t": "int",
+               "min": 0,
+               "max": 1000
+              }
+             },
+             "le": [
+              [
+               "callback_verified",
+               "requests"
+              ],
+              [
+               "second_approver",
+               "requests"
+              ],
+              [
+               "blocked",
+               "requests"
+              ]
+             ]
+            }
+           }
+          }
+         }
+        }
+       }
+      }
+     }
+    },
+    "predicateType": {
+     "t": "const",
+     "value": "https://kovyr.com/attestation/posture/v1"
+    },
+    "subject": {
+     "t": "array",
+     "of": {
+      "t": "object",
+      "fields": {
+       "digest": {
+        "t": "object",
+        "fields": {
+         "sha256": {
+          "t": "hex",
+          "len": 64
+         }
+        }
+       },
+       "name": {
+        "t": "id",
+        "prefixes": [
+         "tnt_",
+         "dev_",
+         "con_",
+         "stf_",
+         "scn_"
+        ]
+       }
+      }
+     },
+     "min_items": 1,
+     "max_items": 1
+    }
+   }
+  }
+ }
+}

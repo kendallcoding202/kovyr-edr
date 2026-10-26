@@ -1,0 +1,39 @@
+{
+  "demo_only": true,
+  "limits": {
+    "max_clock_skew_s": 300,
+    "max_report_delay_s": 900,
+    "max_tsa_spread_s": 300
+  },
+  "log": {
+    "origin": "example.com/mini-log",
+    "vkey": "example.com/mini-log+7893cb60+AfnZrzvT+woDvJ8X/vBOZcUtPYp396mFPFSfKPn7HMlm"
+  },
+  "policy_type": "proof-trust-policy/v1",
+  "timestamp_authorities": [
+    {
+      "kind": "simulated-tsa/v1",
+      "label": "tsa-1.example",
+      "name": "tsa-1.example",
+      "public_key": "MCowBQYDK2VwAyEAYrn3TZFo+XuILC3WKQeHTYtSNuAG41ONNrVx+02h7DM=",
+      "simulated": true
+    },
+    {
+      "kind": "simulated-tsa/v1",
+      "label": "tsa-2.example",
+      "name": "tsa-2.example",
+      "public_key": "MCowBQYDK2VwAyEAGDjcw40GnHBpx5oXWcEXN3EE7TL+dIMPDXHxqhoBuSU=",
+      "simulated": true
+    }
+  ],
+  "timestamp_quorum": 2,
+  "witness_quorum": 1,
+  "witnesses": [
+    {
+      "label": "witness 1",
+      "name": "witness-1.example",
+      "simulated": true,
+      "vkey": "witness-1.example+e6f85e55+BChTJl6GRZOfAZY3L89x+ZWqgxXO8vd0ElzAKZK1ZtfB"
+    }
+  ]
+}

@@ -44,6 +44,10 @@ const ResetPeriod = 24 * time.Hour
 // service several seconds at shutdown; this stays inside that.
 const StopGrace = 3 * time.Second
 
+// errServiceNeverStarted is ERROR_SERVICE_NEVER_STARTED, the exit code
+// Windows reports for a service that has not run yet.
+const errServiceNeverStarted = 1077
+
 // ErrWindowsOnly is returned on other operating systems.
 var ErrWindowsOnly = errors.New("the service commands work only on Windows")
 
@@ -92,7 +96,7 @@ func (s Status) String() string {
 		b.WriteString("; also when it exits with an error")
 	}
 	b.WriteString("\n")
-	if s.State == "stopped" && (s.ExitCode != 0 || s.ServiceExitCode != 0) {
+	if s.State == "stopped" && s.ExitCode != errServiceNeverStarted && (s.ExitCode != 0 || s.ServiceExitCode != 0) {
 		fmt.Fprintf(&b, "  last exit: %d (service code %d)\n", s.ExitCode, s.ServiceExitCode)
 	}
 	return b.String()

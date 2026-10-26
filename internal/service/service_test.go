@@ -60,4 +60,13 @@ func TestStatusText(t *testing.T) {
 			t.Errorf("status lacks %q:\n%s", want, out)
 		}
 	}
+	// A service that never ran has no last exit to show; one that failed has.
+	s.State, s.PID, s.ExitCode = "stopped", 0, 1077
+	if strings.Contains(s.String(), "last exit") {
+		t.Errorf("never-started service shows an exit code:\n%s", s.String())
+	}
+	s.ExitCode, s.ServiceExitCode = 1066, 1
+	if !strings.Contains(s.String(), "last exit: 1066 (service code 1)") {
+		t.Errorf("failed service hides its exit code:\n%s", s.String())
+	}
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"flag"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,19 +24,34 @@ import (
 
 const dir = "../../testdata/vectors"
 
+// The CLI that used to write the vectors is not vendored; this flag does
+// the same job.
+var update = flag.Bool("update", false, "rewrite the committed vectors in testdata/vectors")
+
+// Regenerate is the command that rewrites the vectors.
+const Regenerate = "go test ./proof/internal/vectors -run TestVectorsAreUpToDate -update"
+
 // The committed vectors must be exactly what the generator produces.
 func TestVectorsAreUpToDate(t *testing.T) {
 	files, err := Generate()
 	if err != nil {
 		t.Fatal(err)
 	}
+	if *update {
+		for name, b := range files {
+			if err := os.WriteFile(filepath.Join(dir, name), b, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return
+	}
 	for name, want := range files {
 		got, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
-			t.Fatalf("%s: %v (run: go run ./cmd/proofctl vectors --out testdata/vectors)", name, err)
+			t.Fatalf("%s: %v (run: %s)", name, err, Regenerate)
 		}
 		if !bytes.Equal(got, want) {
-			t.Errorf("%s is stale; run: go run ./cmd/proofctl vectors --out testdata/vectors", name)
+			t.Errorf("%s is stale; run: %s", name, Regenerate)
 		}
 	}
 }

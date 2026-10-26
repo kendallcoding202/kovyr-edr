@@ -1,0 +1,4 @@
+# Signed, hashed and golden test files are compared byte for byte, so a
+# checkout must never rewrite line endings (Windows runners default to
+# core.autocrlf=true).
+* text=auto eol=lf

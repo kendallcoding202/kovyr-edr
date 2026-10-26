@@ -63,6 +63,14 @@ func (s *Step) fail(format string, a ...any) {
 	s.Problems = append(s.Problems, fmt.Sprintf(format, a...))
 }
 
+// warn records something a reader must see that does not fail the step.
+func (s *Step) warn(format string, a ...any) {
+	if s.Status == Pass {
+		s.Status = Warn
+	}
+	s.Problems = append(s.Problems, fmt.Sprintf(format, a...))
+}
+
 // Report is the result of verifying a pack.
 type Report struct {
 	Verified    bool           `json:"verified"`
@@ -450,7 +458,7 @@ func verifySequence(s *Step, items []*item, attesters map[string]*attester, r *R
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
-	total := 0
+	total, lost := 0, 0
 	for _, id := range ids {
 		chain := chains[id]
 		sort.SliceStable(chain, func(i, j int) bool {
@@ -479,10 +487,17 @@ func verifySequence(s *Step, items []*item, attesters map[string]*attester, r *R
 			case sb == sa:
 				s.fail("Two different reports both claim to be %s (log positions %d and %d)", b.label, a.index(), b.index())
 			case sb > sa+1:
+				// SPEC 8 and 13: a hole in the numbering is a lost-report
+				// gap. Ingest accepts it so a device is never locked out,
+				// and offline it cannot be told apart from a report left
+				// out of the pack, so it is disclosed (here and in the
+				// summary), not failed. b's prev names the missing report
+				// and cannot be checked.
+				lost += int(sb - sa - 1)
 				if sb == sa+2 {
-					s.fail("%s: report #%d is missing from this pack; report #%d says it follows it (deleted or withheld)", name, sa+1, sb)
+					s.warn("%s: report #%d is missing: it never reached the log, or it was left out of this pack (disclosed as a lost report)", name, sa+1)
 				} else {
-					s.fail("%s: reports #%d to #%d are missing from this pack (deleted or withheld)", name, sa+1, sb-1)
+					s.warn("%s: reports #%d to #%d are missing: they never reached the log, or they were left out of this pack (disclosed as lost reports)", name, sa+1, sb-1)
 				}
 			default:
 				want := posture.PayloadDigest(a.env().Payload)
@@ -496,9 +511,12 @@ func verifySequence(s *Step, items []*item, attesters map[string]*attester, r *R
 		}
 	}
 	s.Checked = total
-	if s.Status == Pass {
+	switch s.Status {
+	case Pass:
 		s.Detail = fmt.Sprintf("%d reports from %d devices and services: numbered in order, each linked to the one before, no repeats, nothing missing", total, len(chains))
-	} else {
+	case Warn:
+		s.Detail = fmt.Sprintf("%d reports from %d devices and services: in order and linked, no repeats; %d numbered report(s) missing, disclosed as lost", total, len(chains), lost)
+	default:
 		s.Detail = fmt.Sprintf("%d sequence problem(s)", len(s.Problems))
 	}
 }

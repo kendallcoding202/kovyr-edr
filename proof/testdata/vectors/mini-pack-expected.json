@@ -1,4 +1,43 @@
 {
+  "dropped": {
+    "computed_gaps": [
+      {
+        "attester": "dev_00962eb6cada0403",
+        "attester_kind": "device_agent",
+        "days": 1,
+        "device_number": 1,
+        "from": "2026-10-02",
+        "to": "2026-10-02"
+      },
+      {
+        "attester": "dev_818bee8570a01f3f",
+        "attester_kind": "device_agent",
+        "days": 1,
+        "device_number": 2,
+        "from": "2026-10-02",
+        "to": "2026-10-02"
+      }
+    ],
+    "computed_lost_reports": [
+      {
+        "attester": "dev_00962eb6cada0403",
+        "attester_kind": "device_agent",
+        "count": 1,
+        "device_number": 1,
+        "first_seq": 2,
+        "last_seq": 2,
+        "next_report": "2026-10-03"
+      }
+    ],
+    "entry_index": 5,
+    "failed_steps": [
+      "gaps"
+    ],
+    "how": "Remove the entry at log index 5 (device 1, Oct 2) from entries.",
+    "warned_steps": [
+      "sequence"
+    ]
+  },
   "steps": {
     "checkpoint": "pass",
     "consistency": "pass",

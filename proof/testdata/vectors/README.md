@@ -12,5 +12,5 @@ so regenerating produces identical files. `go test ./...` fails if they drift.
 | merkle.json | reproduce leaf hashes and roots; verify each inclusion and consistency proof |
 | note.json | verify the C2SP example; verify the checkpoint signature and the witness cosignature |
 | statement.json | validate `payload_canonical`; reproduce the chain hash, entry digest and leaf hash; verify the timestamp token; validate and verify the scan and endpoint statements; reject each `must_reject_payloads` |
-| mini-pack.json + mini-trust-policy.json | verify: every step passes and the summary matches `mini-pack-expected.json`; after the described tampering exactly the listed steps fail |
+| mini-pack.json + mini-trust-policy.json | verify: every step passes and the summary matches `mini-pack-expected.json`; after the described tampering exactly the listed steps fail; after dropping the described entry exactly the listed steps fail and warn, and the recomputed summary has the listed lost reports and gaps |
 | posture-schema.json | the statement schema as data (the same file the browser verifier embeds) |

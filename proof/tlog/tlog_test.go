@@ -117,9 +117,65 @@ func TestIngestChecks(t *testing.T) {
 		t.Fatal("forged statement accepted")
 	}
 	// A fresh, correct statement is still accepted.
-	ok, _ := posture.Sign(r.statement(t, 2, r.now), r.dev)
-	if _, err := r.srv.Submit(ctx, ok); err != nil {
+	okp := r.statement(t, 2, r.now)
+	ok, _ := posture.Sign(okp, r.dev)
+	ev, err := r.srv.Submit(ctx, ok)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if ev.LostBefore != 0 {
+		t.Fatalf("contiguous report recorded %d lost reports", ev.LostBefore)
+	}
+	r.prev = posture.PayloadDigest(okp)
+	// A wrong prev on the next contiguous report is refused.
+	r.prev = posture.Digest{9}
+	badPrev := r.statement(t, 3, r.now)
+	be, _ := posture.Sign(badPrev, r.dev)
+	if _, err := r.srv.Submit(ctx, be); err == nil || !strings.Contains(err.Error(), "prev") {
+		t.Fatalf("broken prev accepted: %v", err)
+	}
+}
+
+// SPEC 8: reports 3 and 4 never arrive. Ingest accepts report 5 and
+// records the hole, so one lost upload cannot lock the device out.
+func TestIngestAcceptsALostUploadAndRecordsTheGap(t *testing.T) {
+	r := newRig(t)
+	for seq := uint32(1); seq <= 2; seq++ {
+		p := r.statement(t, seq, r.now)
+		env, _ := posture.Sign(p, r.dev)
+		if _, err := r.srv.Submit(ctx, env); err != nil {
+			t.Fatal(err)
+		}
+		r.prev = posture.PayloadDigest(p)
+	}
+	// Reports 3 and 4 are signed (each spends its number) but lost.
+	for seq := uint32(3); seq <= 4; seq++ {
+		r.prev = posture.PayloadDigest(r.statement(t, seq, r.now))
+	}
+	p5 := r.statement(t, 5, r.now)
+	env, _ := posture.Sign(p5, r.dev)
+	ev, err := r.srv.Submit(ctx, env)
+	if err != nil {
+		t.Fatalf("a seq jump locked the device out: %v", err)
+	}
+	if ev.LostBefore != 2 {
+		t.Fatalf("lost reports recorded as %d, want 2", ev.LostBefore)
+	}
+	if a := r.srv.Attester(posture.TenantID(r.tenant.Public()), r.devID); a.LastSeq != 5 {
+		t.Fatalf("last seq %d, want 5", a.LastSeq)
+	}
+	// The chain continues from report 5.
+	r.prev = posture.PayloadDigest(p5)
+	p6 := r.statement(t, 6, r.now)
+	env6, _ := posture.Sign(p6, r.dev)
+	if ev, err := r.srv.Submit(ctx, env6); err != nil || ev.LostBefore != 0 {
+		t.Fatalf("report 6 after the gap: %v", err)
+	}
+	// A lost report that turns up later is a replay of an old number.
+	r.prev = posture.Digest{}
+	late, _ := posture.Sign(r.statement(t, 4, r.now), r.dev)
+	if _, err := r.srv.Submit(ctx, late); err == nil || !strings.Contains(err.Error(), "replay") {
+		t.Fatalf("an old seq was accepted after the gap: %v", err)
 	}
 }
 

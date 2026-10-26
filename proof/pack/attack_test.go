@@ -243,24 +243,65 @@ func TestBackdatedTimestampIsCaught(t *testing.T) {
 	expectFailed(t, p, w, "timestamps gaps")
 }
 
+// SPEC 8 and 13: a hole in a device's numbering is a lost-report gap.
+// Since ingest accepts lost uploads, a report deleted from a pack looks
+// the same as one that never arrived, so it is disclosed, never hidden.
 func TestDeletedEntryAndRewrittenHistoryFail(t *testing.T) {
 	w, p := genuine(t)
-	// Deleting the bad day from the pack breaks the device's hash chain.
+	// Deleting the bad day from the pack leaves a hole in D07's numbering
+	// and makes the summary's lapse unsupported.
 	i := find(t, p, 7, "2026-10-14")
 	p.Entries = append(p.Entries[:i], p.Entries[i+1:]...)
-	r, got := failed(t, p, w)
-	if !strings.HasPrefix(got, "sequence") || !strings.Contains(strings.Join(r.Step("sequence").Problems, " "), "report #12 is missing") {
-		t.Fatalf("deleted report not caught: %s %v", got, r.Step("sequence").Problems)
+	r := expectFailed(t, p, w, "gaps")
+	seq := r.Step("sequence")
+	if seq.Status != pack.Warn || !strings.Contains(strings.Join(seq.Problems, " "), "Laptop D07: report #12 is missing") {
+		t.Fatalf("deleted report not disclosed: %s %v", seq.Status, seq.Problems)
+	}
+	if !strings.Contains(strings.Join(r.Step("gaps").Problems, " "), "hides lost reports the evidence shows: Laptop D07: report #12 missing") {
+		t.Fatalf("summary mismatch not explained: %v", r.Step("gaps").Problems)
 	}
 
-	// The log operator deletes it from the log itself and re-signs.
+	// Even with the summary recomputed to match, the hole stays in it: the
+	// lapse is gone but D07's report #12 is disclosed as lost.
+	p.Summary = pack.Verify(p, w.Trust).Computed
+	r = expectFailed(t, p, w, "")
+	lost, _ := r.Computed["lost_reports"].([]any)
+	if len(lost) != 1 {
+		t.Fatalf("want one lost report run, got %v", lost)
+	}
+	l := lost[0].(map[string]any)
+	if l["device_number"] != int64(7) || l["first_seq"] != int64(12) || l["last_seq"] != int64(12) || l["count"] != int64(1) {
+		t.Fatalf("wrong lost report %v", l)
+	}
+	if !strings.Contains(r.Text(), "lost report run(s) disclosed") || r.Step("sequence").Status != pack.Warn {
+		t.Fatalf("lost report not visible in the report:\n%s", r.Text())
+	}
+
+	// The log operator deletes it from the log itself and re-signs. The
+	// hole is disclosed and the rewrite is caught.
 	_, vp, err := w.VendorRewrite()
 	if err != nil {
 		t.Fatal(err)
 	}
-	r = expectFailed(t, vp, w, "sequence consistency witnesses")
+	r = expectFailed(t, vp, w, "consistency witnesses")
+	if r.Step("sequence").Status != pack.Warn {
+		t.Fatalf("the vendor's deletion left no visible hole: %s", r.Step("sequence").Status)
+	}
 	if !strings.Contains(strings.Join(r.Step("consistency").Problems, " "), "not consistent") {
 		t.Fatalf("unexpected consistency message: %v", r.Step("consistency").Problems)
+	}
+}
+
+// A genuine pack with no holes has no lost_reports key at all, so its
+// summary is byte for byte what earlier verifiers compute.
+func TestNoLostReportsKeyWithoutHoles(t *testing.T) {
+	w, p := genuine(t)
+	r := pack.Verify(p, w.Trust)
+	if _, ok := r.Computed["lost_reports"]; ok {
+		t.Fatal("lost_reports present in a pack without holes")
+	}
+	if r.Step("sequence").Status != pack.Pass {
+		t.Fatalf("sequence = %s", r.Step("sequence").Status)
 	}
 }
 

@@ -29,6 +29,12 @@ type Evidence struct {
 	Envelope   *dsse.Envelope
 	Timestamps []map[string]any
 	Statement  *posture.Statement
+	// LostBefore is how many of the attester's reports never reached the
+	// log just before this one: the lost-report gap ingest recorded when
+	// it accepted a seq jump (SPEC 8). It is the server's own record,
+	// recomputed when evidence is loaded; it is not part of a pack, where
+	// verifiers find the hole from the numbering themselves.
+	LostBefore int64
 }
 
 // Value returns the evidence as a JSON value (for storage and packs).
@@ -187,10 +193,15 @@ func (s *Server) check(env *dsse.Envelope) (*posture.Statement, error) {
 		if len(env.Signatures) != 1 || env.VerifySignature(0, a.Key) != nil {
 			return nil, errors.New("statement signature is not valid for the enrolled key")
 		}
-		if st.Int("seq") != a.LastSeq+1 {
-			return nil, fmt.Errorf("sequence %d rejected: expected %d (replay or gap)", st.Int("seq"), a.LastSeq+1)
-		}
-		if st.Str("prev") != hex.EncodeToString(a.LastPayload[:]) {
+		// SPEC 8: a seq at or below the last is a replay. A seq more than
+		// one ahead means reports were lost before they reached the log;
+		// it is accepted (index records the hole), because refusing it
+		// would lock the attester out for good. prev can be checked only
+		// against a report the server holds.
+		switch seq := st.Int("seq"); {
+		case seq <= a.LastSeq:
+			return nil, fmt.Errorf("sequence %d rejected: not after the last accepted %d (replay)", seq, a.LastSeq)
+		case seq == a.LastSeq+1 && st.Str("prev") != hex.EncodeToString(a.LastPayload[:]):
 			return nil, errors.New("prev does not match the attester's previous statement")
 		}
 	}
@@ -249,6 +260,7 @@ func (s *Server) index(ev *Evidence) {
 		}
 	default:
 		if a := s.attesters[st.Str("tenant")+"/"+st.Str("attester")]; a != nil && st.Int("seq") > a.LastSeq {
+			ev.LostBefore = st.Int("seq") - a.LastSeq - 1
 			a.LastSeq = st.Int("seq")
 			a.LastPayload = posture.PayloadDigest(ev.Envelope.Payload)
 		}

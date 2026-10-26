@@ -286,4 +286,43 @@ func TestMiniPackVector(t *testing.T) {
 	if got := strings.Join(pack.Verify(p, trust).FailedSteps(), ","); got != strings.Join(want, ",") {
 		t.Fatalf("tampered: failed %s want %s", got, strings.Join(want, ","))
 	}
+
+	// The dropped entry: a lost report, disclosed.
+	dm := exp["dropped"].(map[string]any)
+	dp, _ := pack.Parse(pb)
+	var kept []pack.Entry
+	for _, e := range dp.Entries {
+		if e.Evidence.Index != uint64(dm["entry_index"].(float64)) {
+			kept = append(kept, e)
+		}
+	}
+	dp.Entries = kept
+	dr := pack.Verify(dp, trust)
+	list := func(v any) string {
+		var out []string
+		for _, s := range v.([]any) {
+			out = append(out, str(s))
+		}
+		return strings.Join(out, ",")
+	}
+	if got := strings.Join(dr.FailedSteps(), ","); got != list(dm["failed_steps"]) {
+		t.Fatalf("dropped: failed %s want %s", got, list(dm["failed_steps"]))
+	}
+	var warned []string
+	for _, s := range dr.Steps {
+		if s.Status == pack.Warn {
+			warned = append(warned, s.ID)
+		}
+	}
+	if got := strings.Join(warned, ","); got != list(dm["warned_steps"]) {
+		t.Fatalf("dropped: warned %s want %s", got, list(dm["warned_steps"]))
+	}
+	for _, k := range []string{"lost_reports", "gaps"} {
+		want, _ := json.Marshal(dm["computed_"+k])
+		gotv, _ := canon.Canonicalize(want)
+		have := pack.Canonical(dr.Computed[k])
+		if !bytes.Equal(gotv, have) {
+			t.Errorf("dropped: computed %s = %s, want %s", k, have, gotv)
+		}
+	}
 }

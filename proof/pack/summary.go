@@ -31,6 +31,56 @@ func (g gap) value() map[string]any {
 	}
 }
 
+// lostRun is a hole in one attester's numbering between two evidence
+// reports (SPEC 11.3 lost_reports).
+type lostRun struct {
+	Attester    string
+	Kind        string
+	Number      int64
+	First, Last int64
+	Next        time.Time // the report after the hole
+}
+
+func (l lostRun) value() map[string]any {
+	return map[string]any{
+		"attester": l.Attester, "attester_kind": l.Kind, "device_number": l.Number,
+		"first_seq": l.First, "last_seq": l.Last, "count": l.Last - l.First + 1,
+		"next_report": l.Next.Format(DateLayout),
+	}
+}
+
+// lostReports finds every hole in each attester's numbering between two
+// consecutive evidence reports.
+func lostReports(evidence []*item, attesters map[string]*attester) []lostRun {
+	byAttester := map[string][]*item{}
+	for _, it := range evidence {
+		id := it.st.Str("attester")
+		byAttester[id] = append(byAttester[id], it)
+	}
+	ids := make([]string, 0, len(byAttester))
+	for id := range byAttester {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	var out []lostRun
+	for _, id := range ids {
+		chain := byAttester[id]
+		sort.SliceStable(chain, func(i, j int) bool { return chain[i].st.Int("seq") < chain[j].st.Int("seq") })
+		for i := 1; i < len(chain); i++ {
+			a, b := chain[i-1].st.Int("seq"), chain[i].st.Int("seq")
+			if b > a+1 {
+				run := lostRun{Attester: id, Kind: chain[i].st.Str("attester_kind"), First: a + 1, Last: b - 1,
+					Next: dateOf(chain[i].st.Time("observed_at"))}
+				if at := attesters[id]; at != nil {
+					run.Number = at.number
+				}
+				out = append(out, run)
+			}
+		}
+	}
+	return out
+}
+
 // LapseChecks lists the protection checks that count as lapses, keyed by
 // the check ID used in summaries.
 func lapseChecks(it *item) []string {
@@ -192,7 +242,17 @@ func summarize(p *Pack, items []*item, attesters map[string]*attester) (map[stri
 	for _, g := range gaps {
 		gv = append(gv, g.value())
 	}
-	return map[string]any{"coverage": coverage, "gaps": gv, "lapses": lapses}, gaps
+	out := map[string]any{"coverage": coverage, "gaps": gv, "lapses": lapses}
+	// Present only when not empty, so summaries without lost reports keep
+	// the format earlier verifiers compute (SPEC 11.3).
+	if lost := lostReports(evidence, attesters); len(lost) > 0 {
+		lv := make([]any, len(lost))
+		for i, l := range lost {
+			lv[i] = l.value()
+		}
+		out["lost_reports"] = lv
+	}
+	return out, gaps
 }
 
 func verifySummary(s *Step, p *Pack, r *Report) {
@@ -209,7 +269,8 @@ func verifySummary(s *Step, p *Pack, r *Report) {
 		s.Detail = "The summary on this pack does not match the signed evidence"
 		return
 	}
-	if len(r.gaps) == 0 {
+	lost := r.lostTexts()
+	if len(r.gaps) == 0 && len(lost) == 0 {
 		s.Detail = "No gaps: every enrolled device and service reported every day, and the summary matches the evidence"
 		return
 	}
@@ -217,7 +278,37 @@ func verifySummary(s *Step, p *Pack, r *Report) {
 	for i, g := range r.gaps {
 		parts[i] = r.gapText(g)
 	}
-	s.Detail = fmt.Sprintf("%d gap(s) disclosed, matching the evidence: %s", len(r.gaps), strings.Join(parts, "; "))
+	s.Detail = fmt.Sprintf("%d gap(s) disclosed, matching the evidence", len(r.gaps))
+	if len(parts) > 0 {
+		s.Detail += ": " + strings.Join(parts, "; ")
+	}
+	if len(lost) > 0 {
+		s.Detail += fmt.Sprintf(". %d lost report run(s) disclosed: %s", len(lost), strings.Join(lost, "; "))
+	}
+}
+
+// lostTexts describes the computed summary's lost_reports in plain English.
+func (r *Report) lostTexts() []string {
+	arr, _ := r.Computed["lost_reports"].([]any)
+	out := make([]string, 0, len(arr))
+	for _, v := range arr {
+		if o, ok := v.(map[string]any); ok {
+			out = append(out, r.lostText(o))
+		}
+	}
+	return out
+}
+
+func (r *Report) lostText(o map[string]any) string {
+	id, _ := o["attester"].(string)
+	first, _ := o["first_seq"].(int64)
+	last, _ := o["last_seq"].(int64)
+	next, _ := time.Parse(DateLayout, fmt.Sprint(o["next_report"]))
+	which := fmt.Sprintf("report #%d", first)
+	if last > first {
+		which = fmt.Sprintf("reports #%d to #%d", first, last)
+	}
+	return fmt.Sprintf("%s: %s missing before its report of %s", r.attesterName(id), which, next.Format("Jan 2"))
 }
 
 func (r *Report) gapText(g gap) string {
@@ -267,6 +358,17 @@ func (r *Report) diffSummary(claimed map[string]any) []string {
 	for k, o := range cl {
 		if ev[k] == nil {
 			out = append(out, "The summary claims a gap the evidence does not show: "+describeGap(o))
+		}
+	}
+	ev, cl = set(r.Computed["lost_reports"]), set(claimed["lost_reports"])
+	for k, o := range ev {
+		if cl[k] == nil {
+			out = append(out, "The summary hides lost reports the evidence shows: "+r.lostText(o))
+		}
+	}
+	for k, o := range cl {
+		if ev[k] == nil {
+			out = append(out, "The summary claims lost reports the evidence does not show: "+r.lostText(o))
 		}
 	}
 	ev, cl = set(r.Computed["lapses"]), set(claimed["lapses"])

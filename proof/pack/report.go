@@ -49,6 +49,12 @@ func (r *Report) Text() string {
 		} else {
 			b.WriteString(" No gaps.")
 		}
+		if lost := r.lostTexts(); len(lost) > 0 {
+			fmt.Fprintf(&b, "\n%d lost report run(s) disclosed (never reached the log, or left out of this pack):", len(lost))
+			for _, l := range lost {
+				fmt.Fprintf(&b, "\n  - %s", l)
+			}
+		}
 		b.WriteString("\n")
 	} else {
 		var failed []string

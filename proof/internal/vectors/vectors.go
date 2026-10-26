@@ -598,6 +598,29 @@ func miniPack() ([]byte, []byte, any, error) {
 	if got := fmt.Sprint(tr.FailedSteps()); got != "[signatures sequence timestamps inclusion gaps]" {
 		return nil, nil, nil, fmt.Errorf("tampered mini pack failed %s", got)
 	}
+	// A lost report (SPEC 8, 13): the same entry left out entirely. The
+	// hole is a warning in sequence and shows in the recomputed summary;
+	// the pack's own summary did not disclose it, so gaps fails.
+	dp, _ := pack.Parse(pb)
+	var kept []pack.Entry
+	for _, e := range dp.Entries {
+		if e.Evidence.Index != 5 {
+			kept = append(kept, e)
+		}
+	}
+	dp.Entries = kept
+	dr := pack.Verify(dp, trust)
+	if got := fmt.Sprint(dr.FailedSteps()); got != "[gaps]" || dr.Step("sequence").Status != pack.Warn {
+		return nil, nil, nil, fmt.Errorf("mini pack without entry 5 failed %s, sequence %s", got, dr.Step("sequence").Status)
+	}
+	expect["dropped"] = map[string]any{
+		"how":                   "Remove the entry at log index 5 (device 1, Oct 2) from entries.",
+		"entry_index":           5,
+		"failed_steps":          []string{"gaps"},
+		"warned_steps":          []string{"sequence"},
+		"computed_lost_reports": dr.Computed["lost_reports"],
+		"computed_gaps":         dr.Computed["gaps"],
+	}
 	return pb, trust.JSON(), expect, nil
 }
 
@@ -615,6 +638,6 @@ so regenerating produces identical files. ` + "`go test ./...`" + ` fails if the
 | merkle.json | reproduce leaf hashes and roots; verify each inclusion and consistency proof |
 | note.json | verify the C2SP example; verify the checkpoint signature and the witness cosignature |
 | statement.json | validate ` + "`payload_canonical`" + `; reproduce the chain hash, entry digest and leaf hash; verify the timestamp token; validate and verify the scan and endpoint statements; reject each ` + "`must_reject_payloads`" + ` |
-| mini-pack.json + mini-trust-policy.json | verify: every step passes and the summary matches ` + "`mini-pack-expected.json`" + `; after the described tampering exactly the listed steps fail |
+| mini-pack.json + mini-trust-policy.json | verify: every step passes and the summary matches ` + "`mini-pack-expected.json`" + `; after the described tampering exactly the listed steps fail; after dropping the described entry exactly the listed steps fail and warn, and the recomputed summary has the listed lost reports and gaps |
 | posture-schema.json | the statement schema as data (the same file the browser verifier embeds) |
 `

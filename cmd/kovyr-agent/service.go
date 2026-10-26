@@ -35,9 +35,11 @@ var (
 
 const serviceUsage = `kovyr-agent service: run the agent as a Windows service
 
-  service install --server URL [--interval 15m] [--dev-insecure] [--state-dir DIR]
+  service install --server URL [--interval 15m] [--dev-insecure]
+                  [--watch DIR]... [--no-user-folders] [--state-dir DIR]
                     register the service (LocalSystem, automatic delayed start,
-                    restart on failure) and write DIR\agent-config.json
+                    restart on failure) and write DIR\agent-config.json;
+                    --watch adds a data folder to the ransomware tripwire
   service uninstall stop and remove the service (the key and state stay)
   service start     start the service and wait until it runs
   service stop      stop the service and wait until it has stopped
@@ -61,11 +63,14 @@ func cmdService(args []string, defDir string, stdout, stderr io.Writer) int {
 	dir := fs.String("state-dir", defDir, "directory for the device key, chain state, queue, settings and logs")
 	var server *string
 	var interval *time.Duration
-	var insecure *bool
+	var insecure, noUser *bool
+	var watch folderList
 	if sub == "install" {
 		server = fs.String("server", "", "receiver base URL (https://...)")
 		interval = fs.Duration("interval", agent.DefaultInterval, "heartbeat interval (1m to 60m)")
 		insecure = fs.Bool("dev-insecure", false, "DEV ONLY: allow plain http to localhost")
+		fs.Var(&watch, "watch", "also watch this data folder with the ransomware tripwire (repeatable)")
+		noUser = fs.Bool("no-user-folders", false, "do not watch each user's Desktop and Documents")
 	}
 	if fs.Parse(rest) != nil {
 		return 2
@@ -77,7 +82,7 @@ func cmdService(args []string, defDir string, stdout, stderr io.Writer) int {
 	}
 	switch sub {
 	case "install":
-		return serviceInstall(*dir, *server, *interval, *insecure, stdout, stderr)
+		return serviceInstall(*dir, *server, *interval, *insecure, watch, !*noUser, stdout, stderr)
 	case "uninstall":
 		if err := service.Uninstall(opTimeout); err != nil {
 			fmt.Fprintln(stderr, "uninstall:", err)
@@ -122,7 +127,7 @@ func cmdService(args []string, defDir string, stdout, stderr io.Writer) int {
 	return 2
 }
 
-func serviceInstall(dir, server string, interval time.Duration, insecure bool, stdout, stderr io.Writer) int {
+func serviceInstall(dir, server string, interval time.Duration, insecure bool, watch []string, userFolders bool, stdout, stderr io.Writer) int {
 	if server == "" {
 		fmt.Fprintln(stderr, "service install needs --server URL")
 		return 2
@@ -139,6 +144,7 @@ func serviceInstall(dir, server string, interval time.Duration, insecure bool, s
 	}
 	s := config.Defaults()
 	s.Server, s.DevInsecure, s.IntervalS = server, insecure, int(interval/time.Second)
+	s.Tripwire.Folders, s.Tripwire.UserFolders = append([]string{}, watch...), userFolders
 	if err := s.Validate(); err != nil {
 		fmt.Fprintln(stderr, "settings:", err)
 		return 2
@@ -208,8 +214,10 @@ func serviceMain(ctx context.Context, dir string, s config.Settings, logger *log
 	if err != nil {
 		return err
 	}
+	trip, stopTrip := startTripwire(s.Tripwire, logger.Printf)
+	defer stopTrip()
 	a, err := agent.New(agent.Config{Dir: dir, Interval: s.Interval(), Throttle: s.Throttle(),
-		Conditions: sysload.System(), Logf: logger.Printf}, signer, checks.NewRunner(systemProbes()), client)
+		Conditions: sysload.System(), Tripwire: trip, Logf: logger.Printf}, signer, checks.NewRunner(systemProbes()), client)
 	if err != nil {
 		return err
 	}

@@ -28,6 +28,27 @@ func useHealthyFake(t *testing.T) {
 	t.Cleanup(func() { systemProbes = old })
 }
 
+// noUserFolders keeps the tripwire off this machine's real user folders.
+func noUserFolders(t *testing.T) {
+	old := userFolders
+	userFolders = func() []string { return nil }
+	t.Cleanup(func() { userFolders = old })
+}
+
+// wantTripwire is the tripwire state a heartbeat watching n folders
+// reports on this OS.
+func wantTripwire(t *testing.T, l *receiver.Latest, n uint8) {
+	t.Helper()
+	switch {
+	case l == nil:
+		t.Fatal("no statement")
+	case runtime.GOOS == "windows" && (l.TripwireState != "ok" || l.TripwireFolders != n):
+		t.Fatalf("tripwire %s watching %d, want ok watching %d", l.TripwireState, l.TripwireFolders, n)
+	case runtime.GOOS != "windows" && l.TripwireState != "not_applicable":
+		t.Fatalf("tripwire %s, want not_applicable", l.TripwireState)
+	}
+}
+
 func TestCheckPrintsATableAndAValidStatement(t *testing.T) {
 	useHealthyFake(t)
 	dir := filepath.Join(t.TempDir(), "Kovyr")
@@ -75,6 +96,7 @@ func toCanon(v any) any {
 // the dev receiver.
 func TestKeygenEnrollRunOnce(t *testing.T) {
 	useHealthyFake(t)
+	noUserFolders(t)
 	dir := filepath.Join(t.TempDir(), "Kovyr")
 	code, out, errs := runCLI(t, "keygen", "--state-dir", dir)
 	if code != 0 {
@@ -113,19 +135,25 @@ func TestKeygenEnrollRunOnce(t *testing.T) {
 	if code, _, errs := runCLI(t, "run", "--server", srv.URL, "--state-dir", dir, "--once"); code != 2 || !strings.Contains(errs, "https") {
 		t.Fatalf("plain http without --dev-insecure: exit %d %s", code, errs)
 	}
+	watched := t.TempDir()
 	for i := 0; i < 2; i++ {
-		code, _, errs := runCLI(t, "run", "--server", srv.URL, "--dev-insecure", "--state-dir", dir, "--once", "--usage")
+		code, _, errs := runCLI(t, "run", "--server", srv.URL, "--dev-insecure", "--state-dir", dir, "--once", "--usage",
+			"--watch", watched, "--watch", filepath.Join(watched, "inside"), "--watch", filepath.Join(watched, "missing"))
 		if code != 0 {
 			t.Fatalf("run --once exit %d: %s", code, errs)
 		}
 		if !strings.Contains(errs, "kovyr-agent usage: cpu_ms=") {
 			t.Fatalf("--usage printed nothing: %s", errs)
 		}
+		if strings.Contains(errs, watched) {
+			t.Fatalf("the log names a watched folder: %s", errs)
+		}
 	}
 	st := r.Status().Devices[0]
 	if st.LastSeq != 2 || st.TamperEvents != 0 {
 		t.Fatalf("receiver status %+v", st)
 	}
+	wantTripwire(t, st.Latest, 1) // "inside" is covered by its parent; "missing" does not exist
 }
 
 func TestUsage(t *testing.T) {
@@ -137,5 +165,15 @@ func TestUsage(t *testing.T) {
 	}
 	if code, _, _ := runCLI(t, "run"); code != 2 {
 		t.Error("run without --server")
+	}
+	many := []string{"run", "--server", "https://halden.example"}
+	for i := 0; i < 17; i++ {
+		many = append(many, "--watch", filepath.Join(t.TempDir(), "f"))
+	}
+	if code, _, _ := runCLI(t, many...); code != 2 {
+		t.Error("17 --watch folders accepted")
+	}
+	if code, _, _ := runCLI(t, "run", "--server", "https://halden.example", "--watch", ""); code != 2 {
+		t.Error("an empty --watch folder accepted")
 	}
 }

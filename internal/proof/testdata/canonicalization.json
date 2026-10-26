@@ -1,0 +1,99 @@
+{
+  "canonicalize": [
+    {
+      "name": "sorted keys, no whitespace",
+      "input": "{ \"b\": 2, \"a\": [true, false], \"_c\": {\"z\": -7, \"y\": \"\"} }",
+      "canonical": "{\"_c\":{\"y\":\"\",\"z\":-7},\"a\":[true,false],\"b\":2}",
+      "sha256": "8a6dd508edb0f4299484c9755a48cb9df1881a6619407c218ed388a2ed116305"
+    },
+    {
+      "name": "nested arrays",
+      "input": "[[1,[2,[3]]],{\"k\":\"v\"}]",
+      "canonical": "[[1,[2,[3]]],{\"k\":\"v\"}]",
+      "sha256": "5a340a694458ae4d995b62780364e0389bec223e5fb880084e7cbd69f5a97b82"
+    },
+    {
+      "name": "key order is byte order",
+      "input": "{\"b\":1,\"B\":2,\"a\":3,\"_\":4,\"0\":5}",
+      "canonical": "{\"0\":5,\"B\":2,\"_\":4,\"a\":3,\"b\":1}",
+      "sha256": "80a469fe547baad1572e7f6029ff4ee829b7978f115f3a25e9d6f8b886a47a45"
+    },
+    {
+      "name": "largest safe integers",
+      "input": "{\"max\":9007199254740991,\"min\":-9007199254740991}",
+      "canonical": "{\"max\":9007199254740991,\"min\":-9007199254740991}",
+      "sha256": "63546eb60913dcb1cdd5118f7bf4885beed344af930c8a9d5f38fad243fd4819"
+    },
+    {
+      "name": "printable ASCII",
+      "input": "{\"s\":\"A-z 0-9 !#$%&'()*+,-./:;<=>?@[]^_{|}~\"}",
+      "canonical": "{\"s\":\"A-z 0-9 !#$%&'()*+,-./:;<=>?@[]^_{|}~\"}",
+      "sha256": "8beaf3fd3acb85bac0d7505434f4647c8b8e4a09404eaeec2f1dacfdca9aefa6"
+    }
+  ],
+  "reject_as_canonical": [
+    {
+      "name": "whitespace",
+      "input": "{\"a\": 1}",
+      "why": "insignificant whitespace"
+    },
+    {
+      "name": "unsorted",
+      "input": "{\"b\":1,\"a\":2}",
+      "why": "keys out of order"
+    },
+    {
+      "name": "escape",
+      "input": "{\"a\":\"\\u0041\"}",
+      "why": "escape sequence"
+    },
+    {
+      "name": "trailing newline",
+      "input": "{\"a\":1}\n",
+      "why": "bytes after the value"
+    }
+  ],
+  "reject_in_signed_data_always": [
+    {
+      "name": "duplicate key",
+      "input": "{\"a\":1,\"a\":1}",
+      "why": "duplicate key"
+    },
+    {
+      "name": "float",
+      "input": "{\"a\":1.0}",
+      "why": "non-integer number"
+    },
+    {
+      "name": "exponent",
+      "input": "{\"a\":1e2}",
+      "why": "non-integer number"
+    },
+    {
+      "name": "null",
+      "input": "{\"a\":null}",
+      "why": "null"
+    },
+    {
+      "name": "unsafe integer",
+      "input": "{\"a\":9007199254740992}",
+      "why": "outside +-(2^53-1)"
+    },
+    {
+      "name": "non-ascii string",
+      "input": "{\"a\":\"é\"}",
+      "why": "outside printable ASCII"
+    },
+    {
+      "name": "control character",
+      "input": "{\"a\":\"\t\"}",
+      "why": "control character"
+    },
+    {
+      "name": "quote in string",
+      "input": "{\"a\":\"\\\"\"}",
+      "why": "quote cannot appear in canonical strings"
+    }
+  ],
+  "version": "strict-json-c14n/v1"
+}

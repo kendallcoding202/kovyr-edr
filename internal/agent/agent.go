@@ -33,10 +33,10 @@ var Version = proof.Version{Major: 0, Minor: 1, Patch: 0}
 var ErrNoChallenge = errors.New("no server challenge")
 
 // SensorHealth is the SPEC 6.4 sensor_health section for v0. The agent
-// is running (it is making this report). v0 has no self-tamper checks yet
-// (the tripwire is a later ticket), so tamper_detected is false meaning
-// "none detected", not "checked and clean"; it does not read the
-// blocklist version (0) and has no policy (0).
+// is running (it is making this report). v0 has no self-tamper checks yet,
+// so tamper_detected is false meaning "none detected", not "checked and
+// clean" (ransomware activity goes in the tripwire section, not here); it
+// does not read the blocklist version (0) and has no policy (0).
 func SensorHealth() proof.SensorHealth {
 	return proof.SensorHealth{SensorRunning: true}
 }
@@ -47,6 +47,18 @@ const DefaultInterval = 15 * time.Minute
 // Checker runs the protection checks (checks.Runner in production).
 type Checker interface {
 	RunWith(checks.RunOptions) (proof.Readings, []checks.CheckReport)
+}
+
+// Tripwire is the ransomware tripwire (tripwire.Detector in production).
+// It only counts and signals; the agent reports what it says and takes no
+// action on a trip.
+type Tripwire interface {
+	// Snapshot is the tripwire section for the next statement, and the
+	// function to call once that statement is safely queued.
+	Snapshot() (proof.Tripwire, func())
+	// Trips signals that the tripwire fired and an extra heartbeat is
+	// due now. It fires at most once per cooldown.
+	Trips() <-chan struct{}
 }
 
 // Clock lets tests drive time.
@@ -71,8 +83,11 @@ type Config struct {
 	// backs off (Beat and the tests).
 	Conditions sysload.Source
 	Throttle   Throttle
-	Clock      Clock
-	Logf       func(format string, args ...any)
+	// Tripwire is reported in every statement and triggers an extra
+	// heartbeat when it fires; nil reports it as unknown.
+	Tripwire Tripwire
+	Clock    Clock
+	Logf     func(format string, args ...any)
 }
 
 // Agent is the heartbeat loop.
@@ -187,6 +202,12 @@ func (a *Agent) beat(ctx context.Context, p plan) (*proof.Statement, error) {
 			a.cfg.Logf("check %s: %s", r.Name, r.Outcome)
 		}
 	}
+	// The tripwire last, so the statement carries the newest window.
+	// Without one it stays unknown (the zero value).
+	ack := func() {}
+	if a.cfg.Tripwire != nil {
+		readings.Tripwire, ack = a.cfg.Tripwire.Snapshot()
+	}
 	env, st, err := a.seal(nonce, readings, p.schedule())
 	if err != nil {
 		return nil, err
@@ -203,6 +224,9 @@ func (a *Agent) beat(ctx context.Context, p plan) (*proof.Statement, error) {
 	if err := saveState(a.cfg.Dir, a.state); err != nil {
 		return nil, fmt.Errorf("save chain state: %w", err)
 	}
+	// Only now is the tripwire's news safely on its way: a statement that
+	// was never made leaves the trip for the next one.
+	ack()
 	return st, nil
 }
 
@@ -270,18 +294,33 @@ func (a *Agent) Flush(ctx context.Context) error {
 
 // Run is the heartbeat loop. It beats immediately, then every interval
 // (longer on battery, deferred under load: see Throttle); failed sends
-// are retried with backoff and jitter, never in a hot loop.
+// are retried with backoff and jitter, never in a hot loop. When the
+// tripwire fires it makes an extra heartbeat at once, which is never
+// deferred, and the scheduled heartbeat keeps its time.
 func (a *Agent) Run(ctx context.Context) error {
 	clk := a.cfg.Clock
 	nextBeat := clk.Now()
 	due := nextBeat // when the pending heartbeat was due, before any deferral
 	var retryAt time.Time
 	failures, beatFailures := 0, 0
+	var trips <-chan struct{} // nil without a tripwire: never ready
+	if a.cfg.Tripwire != nil {
+		trips = a.cfg.Tripwire.Trips()
+	}
+	tripped := false // a trip waits for a statement
 	for {
+		select {
+		case <-trips:
+			tripped = true
+		default:
+		}
 		now := clk.Now()
 		a.load.observe(now)
-		if !now.Before(nextBeat) {
-			p, deferBy := a.decide(now, due)
+		switch {
+		case !now.Before(nextBeat) || tripped && !now.Before(due):
+			// The scheduled heartbeat (or one being deferred). A trip
+			// rides on it and stops any deferral.
+			p, deferBy := a.decide(now, due, tripped)
 			switch {
 			case deferBy > 0:
 				nextBeat = now.Add(deferBy)
@@ -295,12 +334,29 @@ func (a *Agent) Run(ctx context.Context) error {
 					a.cfg.Logf("heartbeat not made (%v); next try in %v", err, d.Round(time.Second))
 					nextBeat = now.Add(d)
 				} else {
-					beatFailures = 0
+					beatFailures, tripped = 0, false
 					nextBeat = now.Add(p.interval)
 				}
 				due = nextBeat
 				retryAt = now
 			}
+		case tripped:
+			// The extra heartbeat. It announces the time left until the
+			// scheduled one, so the receiver expects that one on time.
+			a.cfg.Logf("tripwire fired: sending a heartbeat now")
+			if _, err := a.beat(ctx, plan{interval: untilNext(now, nextBeat)}); err != nil {
+				// The trip waits; retry with backoff, or with the
+				// scheduled heartbeat if that comes first.
+				beatFailures++
+				d := a.cfg.Backoff.Delay(beatFailures)
+				a.cfg.Logf("tripwire heartbeat not made (%v); next try in %v", err, d.Round(time.Second))
+				if at := now.Add(d); at.Before(nextBeat) {
+					nextBeat, due = at, at
+				}
+			} else {
+				beatFailures, tripped = 0, false
+			}
+			retryAt = now
 		}
 		if !retryAt.IsZero() && !now.Before(retryAt) {
 			if err := a.Flush(ctx); err != nil {
@@ -325,7 +381,19 @@ func (a *Agent) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-trips:
+			tripped = true
 		case <-clk.After(wake.Sub(clk.Now())):
 		}
 	}
+}
+
+// untilNext is the interval an extra heartbeat announces: the time left
+// until the scheduled one, within the SPEC limits.
+func untilNext(now, next time.Time) time.Duration {
+	d := next.Sub(now)
+	if lo := proof.MinIntervalS * time.Second; d < lo {
+		return lo
+	}
+	return d
 }

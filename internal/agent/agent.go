@@ -114,7 +114,7 @@ func New(cfg Config, signer proof.Signer, checker Checker, transport Transport) 
 	if cfg.Clock == nil {
 		cfg.Clock = realClock{}
 	}
-	th, err := cfg.Throttle.withDefaults()
+	th, err := cfg.Throttle.WithDefaults()
 	if err != nil {
 		return nil, err
 	}

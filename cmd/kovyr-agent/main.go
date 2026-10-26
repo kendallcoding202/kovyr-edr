@@ -8,6 +8,7 @@
 //	kovyr-agent keygen  [--state-dir DIR]
 //	kovyr-agent enroll  --print-pubkey [--state-dir DIR]
 //	kovyr-agent run     --server URL [--interval 15m] [--dev-insecure] [--once] [--state-dir DIR]
+//	kovyr-agent service install|uninstall|start|stop|status (Windows)
 package main
 
 import (
@@ -40,7 +41,8 @@ Commands:
   check                  run the protection checks once; print a table and the statement
   keygen                 create this device's signing key
   enroll --print-pubkey  print the public key to enroll this device (enrollment is a stub in v0)
-  run --server URL       send a signed heartbeat every interval
+  run --server URL       send a signed heartbeat every interval (in this console)
+  service ...            install and control the Windows service (kovyr-agent service for help)
 
 Common flag: --state-dir DIR (default %s)
 `
@@ -57,6 +59,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	cmd, rest := args[0], args[1:]
+	if cmd == "service" {
+		return cmdService(rest, defDir, stdout, stderr)
+	}
 	fs := flag.NewFlagSet("kovyr-agent "+cmd, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	dir := fs.String("state-dir", defDir, "directory for the device key, chain state and queue")

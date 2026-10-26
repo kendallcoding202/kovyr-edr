@@ -43,8 +43,8 @@ const (
 	minBusyPercent           = 50
 )
 
-// withDefaults fills zero values and checks the ranges.
-func (t Throttle) withDefaults() (Throttle, error) {
+// WithDefaults fills zero values and checks the ranges.
+func (t Throttle) WithDefaults() (Throttle, error) {
 	if t.BatteryIntervalFactor == 0 {
 		t.BatteryIntervalFactor = DefaultBatteryIntervalFactor
 	}

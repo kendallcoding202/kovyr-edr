@@ -205,7 +205,7 @@ func TestModerateLoadDoesNotDefer(t *testing.T) {
 }
 
 func TestDeferralIsCappedAtAThirdOfTheInterval(t *testing.T) {
-	th, _ := Throttle{}.withDefaults()
+	th, _ := Throttle{}.WithDefaults()
 	if got := th.maxDefer(15 * time.Minute); got != 5*time.Minute {
 		t.Errorf("15m interval: max defer %v", got)
 	}
@@ -238,7 +238,7 @@ func TestThrottleConfigIsValidated(t *testing.T) {
 			t.Errorf("%s: accepted", name)
 		}
 	}
-	th, err := Throttle{}.withDefaults()
+	th, err := Throttle{}.WithDefaults()
 	if err != nil || th != (Throttle{BatteryIntervalFactor: 2, BusyPercent: 80, Window: time.Minute, DeferStep: time.Minute, MaxDefer: 5 * time.Minute}) {
 		t.Fatalf("defaults %+v %v", th, err)
 	}

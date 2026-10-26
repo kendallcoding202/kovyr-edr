@@ -23,11 +23,12 @@ var forbiddenImports = []string{
 const module = "github.com/kendallcoding202/kovyr-edr/"
 
 // allowedLibs are the only in-module packages the statement builder may
-// import: the shared proof library's encoding, signature and schema
-// packages. They are checked below with the same import rules.
+// import: the shared proof library's encoding, signature, schema and
+// constant packages. They are checked below with the same import rules.
 var allowedLibs = map[string]bool{
 	module + "proof/canon": true, module + "proof/dsse": true,
 	module + "proof/sigs": true, module + "proof/posture": true,
+	module + "proof/brand": true, module + "proof/tsa": true,
 }
 
 func parseDir(t *testing.T, dir string) []*ast.File {

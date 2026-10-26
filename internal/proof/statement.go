@@ -10,24 +10,19 @@ package proof
 // enforced by structure_test.go), and this package imports nothing that
 // reads files, the network or OS state.
 //
-// Format (SPEC.md, proof-of-protection/engine): in-toto Statement v1 with
-// one subject (the device ID, its key ID as the sha256 digest), canonical
-// JSON, DSSE envelope, ES256 P1363 low-S signature. The predicate type is
-// .../endpoint/v1, which SPEC section 6.4 names for endpoint-agent
-// sections. Its fields:
+// Format (proof/SPEC.md): in-toto Statement v1 with one subject (the
+// device ID, its key ID as the sha256 digest), canonical JSON, DSSE
+// envelope, ES256 P1363 low-S signature. The predicate type is
+// .../endpoint/v1, SPEC section 6.5:
 //
-//   - the posture/v1 common fields of SPEC 6.2 with the same names and
+//   - the posture common fields of SPEC 6.2 with the same names and
 //     formats: attester, attester_kind, seq, prev, nonce, salt,
 //     observed_at. prev is SHA-256 of the previous payload (SPEC 8);
-//   - sensor_health, exactly the section SPEC 6.4 defines;
-//   - protection and agent_version, which SPEC does not define yet.
+//   - agent_version, sensor_health (the SPEC 6.4 schema) and protection.
 //
-// TODO(spec): SPEC 6.4 is "schema only, not implemented" and today's
-// verifiers do not accept endpoint/v1. Before halden ingests these, SPEC
-// must add the protection section and agent_version (proposed schema in
-// docs/api.md), and v0 deviations must close: no tenant field (needs
-// enrollment) and seq 1 links to GenesisPrev instead of the enrollment
-// payload.
+// SPEC 6.5 also says what is still missing: no tenant field and seq 1
+// links to GenesisPrev until endpoint enrollment ships.
+// TODO(enrollment): add tenant and link seq 1 to the enrollment payload.
 
 import (
 	"crypto/sha256"
@@ -37,21 +32,24 @@ import (
 	"sort"
 	"time"
 
+	"github.com/kendallcoding202/kovyr-edr/proof/brand"
 	"github.com/kendallcoding202/kovyr-edr/proof/canon"
+	"github.com/kendallcoding202/kovyr-edr/proof/posture"
+	"github.com/kendallcoding202/kovyr-edr/proof/tsa"
 )
 
 // InTotoStatementType is the in-toto Statement v1 type URI.
-const InTotoStatementType = "https://in-toto.io/Statement/v1"
+const InTotoStatementType = posture.InTotoStatementType
 
 // PredicateEndpoint is the predicate type of a heartbeat statement (SPEC
-// section 6.4: "a new predicate type .../endpoint/v1").
-const PredicateEndpoint = "https://kovyr.com/attestation/endpoint/v1"
+// section 6.5).
+const PredicateEndpoint = brand.PredicateEndpoint
 
 // DevicePrefix starts every device ID.
-const DevicePrefix = "dev_"
+const DevicePrefix = posture.PrefixDevice
 
 // TimeLayout is the only timestamp format in signed data: UTC, seconds.
-const TimeLayout = "2006-01-02T15:04:05Z"
+const TimeLayout = tsa.TimeLayout
 
 // Heartbeat interval bounds, in seconds (1 to 60 minutes; SPEC allows
 // 30 to 3600 for heartbeat_interval_s).
@@ -60,11 +58,14 @@ const (
 	MaxIntervalS = 3600
 )
 
-// Range caps.
+// Range caps (SPEC 6.4 and 6.5).
 const (
-	MaxAVProducts       = 32
-	MaxSignatureAgeDays = 65535
-	MaxVersion          = 1<<53 - 1 // SPEC 6.4 version fields: 0..9007199254740991
+	MaxAVProducts       = posture.MaxAVProducts
+	MaxSignatureAgeDays = posture.MaxSignatureAgeDays
+	MaxVersion          = posture.MaxVersionNumber // version fields: 0..9007199254740991
+	// MaxEDRAgentsListed caps protection.edr.agents; beyond it the list
+	// is truncated (see BuildStatement).
+	MaxEDRAgentsListed = posture.EDRAgentsMaxItems
 )
 
 // Digest, Nonce and Salt are fixed-size protocol values.
@@ -140,7 +141,8 @@ type Defender struct {
 	RunningMode      RunningMode
 }
 
-// EDR lists known EDR agents found on the machine.
+// EDR lists known EDR agents found on the machine, one per vendor. The
+// statement lists at most MaxEDRAgentsListed of them (SPEC 6.5).
 type EDR struct {
 	State  Availability
 	Agents []EDRAgent
@@ -195,16 +197,9 @@ func BuildStatement(key *PublicKey, h Header, sh SensorHealth, r Readings) ([]by
 		return nil, errors.New("builder refused statement: version outside 0..2^53-1")
 	}
 	var e enc
-	agents := append([]EDRAgent(nil), r.EDR.Agents...)
-	// Sorted by vendor name, as the schema requires (the receiver rejects
-	// unsorted or repeated vendors).
-	sort.Slice(agents, func(i, j int) bool { return agents[i].Vendor.String() < agents[j].Vendor.String() })
-	agentList := make([]any, 0, len(agents))
-	for _, a := range agents {
-		agentList = append(agentList, map[string]any{
-			"vendor":  e.name(vendorNames, uint8(a.Vendor)),
-			"running": a.Running,
-		})
+	agents, err := agentList(&e, r.EDR.Agents)
+	if err != nil {
+		return nil, fmt.Errorf("builder refused statement: %w", err)
 	}
 	sc, d := r.SecurityCenter, r.Defender
 	protection := map[string]any{
@@ -224,10 +219,7 @@ func BuildStatement(key *PublicKey, h Header, sh SensorHealth, r Readings) ([]by
 			"signature_age_days":   int64(d.SignatureAgeDays),
 			"running_mode":         e.name(runningModeNames, uint8(d.RunningMode)),
 		},
-		"edr": map[string]any{
-			"state":  e.name(availabilityNames, uint8(r.EDR.State)),
-			"agents": agentList,
-		},
+		"edr":                         edrValue(&e, r.EDR.State, agents),
 		"bitlocker_os_volume":         e.name(volumeNames, uint8(r.BitLocker)),
 		"firewall_profiles_on":        int64(r.FirewallProfilesOn),
 		"vulnerable_driver_blocklist": e.name(blocklistNames, uint8(r.DriverBlocklist)),
@@ -272,6 +264,51 @@ func BuildStatement(key *PublicKey, h Header, sh SensorHealth, r Readings) ([]by
 	return canon.Encode(st)
 }
 
+// agentList is SPEC 6.5's edr.agents result list: one record per vendor,
+// sorted by vendor name. When there are more than MaxEDRAgentsListed, the
+// agents that are not running are kept first (they are the alarm), then
+// the rest by vendor name, and the list is marked truncated. A repeated
+// vendor is refused before anything is cut, so a cap can never hide it.
+func agentList(e *enc, in []EDRAgent) (map[string]any, error) {
+	seen := map[Vendor]bool{}
+	for _, a := range in {
+		if seen[a.Vendor] {
+			return nil, fmt.Errorf("vendor %s listed twice", a.Vendor)
+		}
+		seen[a.Vendor] = true
+	}
+	agents := append([]EDRAgent(nil), in...)
+	byName := func(i, j int) bool { return agents[i].Vendor.String() < agents[j].Vendor.String() }
+	truncated := len(agents) > MaxEDRAgentsListed
+	if truncated {
+		sort.SliceStable(agents, func(i, j int) bool {
+			if agents[i].Running != agents[j].Running {
+				return !agents[i].Running
+			}
+			return byName(i, j)
+		})
+		agents = agents[:MaxEDRAgentsListed]
+	}
+	sort.Slice(agents, byName)
+	items := make([]any, 0, len(agents))
+	for _, a := range agents {
+		items = append(items, map[string]any{
+			"vendor":  e.name(vendorNames, uint8(a.Vendor)),
+			"running": a.Running,
+		})
+	}
+	return map[string]any{"items": items, "total": int64(len(in)), "truncated": truncated}, nil
+}
+
+// edrValue is the edr check: a check that did not run lists no agents.
+func edrValue(e *enc, state Availability, agents map[string]any) map[string]any {
+	v := map[string]any{"state": e.name(availabilityNames, uint8(state))}
+	if state == AvailOK || len(agents["items"].([]any)) > 0 {
+		v["agents"] = agents // the schema refuses agents when not ok
+	}
+	return v
+}
+
 // enc collects the first enum that is outside its table.
 type enc struct{ err error }
 
@@ -296,16 +333,17 @@ type Statement struct {
 	AgentVersion Version
 	SensorHealth SensorHealth
 	Readings     Readings
+	// EDRAgentsTotal is how many agents were found (edr.agents.total);
+	// EDRAgentsTruncated says Readings.EDR.Agents holds only some of them.
+	EDRAgentsTotal     int
+	EDRAgentsTruncated bool
 }
 
-// ValidateStatement checks that payload is a canonical heartbeat
-// statement that obeys the schema, and decodes it.
+// ValidateStatement checks that payload is a canonical endpoint/v1
+// statement that obeys SPEC 6.5, and decodes it.
 func ValidateStatement(payload []byte) (*Statement, error) {
-	obj, err := canon.ParseObject(payload)
+	obj, err := parseStatement(payload)
 	if err != nil {
-		return nil, err
-	}
-	if err := checkStatement(obj); err != nil {
 		return nil, err
 	}
 	return decodeStatement(obj), nil
@@ -361,11 +399,15 @@ func decodeStatement(obj map[string]any) *Statement {
 			MemoryIntegrity:    Toggle(ev(toggleNames, c["memory_integrity"])),
 		},
 	}
-	for _, a := range e["agents"].([]any) {
-		ao := a.(map[string]any)
-		st.Readings.EDR.Agents = append(st.Readings.EDR.Agents, EDRAgent{
-			Vendor: Vendor(ev(vendorNames, ao["vendor"])), Running: ao["running"].(bool),
-		})
+	if list, ok := e["agents"].(map[string]any); ok { // present only when state is ok
+		for _, a := range list["items"].([]any) {
+			ao := a.(map[string]any)
+			st.Readings.EDR.Agents = append(st.Readings.EDR.Agents, EDRAgent{
+				Vendor: Vendor(ev(vendorNames, ao["vendor"])), Running: ao["running"].(bool),
+			})
+		}
+		st.EDRAgentsTotal = int(list["total"].(int64))
+		st.EDRAgentsTruncated = list["truncated"].(bool)
 	}
 	hex.Decode(st.Prev[:], []byte(p["prev"].(string)))
 	hex.Decode(st.Nonce[:], []byte(p["nonce"].(string)))

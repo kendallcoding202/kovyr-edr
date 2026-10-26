@@ -120,12 +120,14 @@ func isUntyped(e ast.Expr) bool {
 var builderInputs = map[string]bool{
 	"Header": true, "SensorHealth": true, "Readings": true, "SecurityCenter": true,
 	"Defender": true, "EDR": true, "EDRAgent": true, "Version": true, "Schedule": true,
+	"Tripwire": true, "TripCounts": true,
 }
 
 // vocabularyTypes must be small unsigned integers, never strings.
 var vocabularyTypes = map[string]bool{
 	"Availability": true, "Toggle": true, "BlocklistState": true, "VolumeProtection": true,
 	"RunningMode": true, "Vendor": true, "KeyProtection": true,
+	"TripReason": true, "TripWindow": true, "TripBucket": true,
 }
 
 func TestBuilderAcceptsOnlyTypedValues(t *testing.T) {

@@ -7,7 +7,7 @@
 //	kovyr-agent check   [--state-dir DIR] [--json]
 //	kovyr-agent keygen  [--state-dir DIR]
 //	kovyr-agent enroll  --print-pubkey [--state-dir DIR]
-//	kovyr-agent run     --server URL [--interval 15m] [--dev-insecure] [--once] [--state-dir DIR]
+//	kovyr-agent run     --server URL [--interval 15m] [--dev-insecure] [--once] [--usage] [--state-dir DIR]
 //	kovyr-agent service install|uninstall|start|stop|status (Windows)
 package main
 
@@ -30,12 +30,13 @@ import (
 	"github.com/kendallcoding202/kovyr-edr/internal/keystore"
 	"github.com/kendallcoding202/kovyr-edr/internal/proof"
 	"github.com/kendallcoding202/kovyr-edr/internal/sysload"
+	"github.com/kendallcoding202/kovyr-edr/internal/usage"
 )
 
 // systemProbes is replaced in tests.
 var systemProbes = checks.SystemProbes
 
-const usage = `kovyr-agent: Kovyr Protection Alarm agent (v0, read-only)
+const usageText = `kovyr-agent: Kovyr Protection Alarm agent (v0, read-only)
 
 Commands:
   check                  run the protection checks once; print a table and the statement
@@ -55,7 +56,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		defDir = "kovyr-state"
 	}
 	if len(args) == 0 {
-		fmt.Fprintf(stderr, usage, defDir)
+		fmt.Fprintf(stderr, usageText, defDir)
 		return 2
 	}
 	cmd, rest := args[0], args[1:]
@@ -92,6 +93,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		interval := fs.Duration("interval", agent.DefaultInterval, "heartbeat interval (1m to 60m)")
 		insecure := fs.Bool("dev-insecure", false, "DEV ONLY: allow plain http to localhost")
 		once := fs.Bool("once", false, "send one heartbeat (and any queued ones), then exit")
+		showUsage := fs.Bool("usage", false, "print this process's CPU time and peak memory when it exits (diagnostics)")
 		if fs.Parse(rest) != nil {
 			return 2
 		}
@@ -99,12 +101,18 @@ func run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "run needs --server URL")
 			return 2
 		}
-		return cmdRun(*dir, *server, *interval, *insecure, *once, stderr)
+		code := cmdRun(*dir, *server, *interval, *insecure, *once, stderr)
+		if *showUsage {
+			if u, err := usage.Self(); err == nil {
+				fmt.Fprintln(stderr, "kovyr-agent", u)
+			}
+		}
+		return code
 	case "help", "-h", "--help":
-		fmt.Fprintf(stdout, usage, defDir)
+		fmt.Fprintf(stdout, usageText, defDir)
 		return 0
 	}
-	fmt.Fprintf(stderr, "unknown command %q\n\n"+usage, cmd, defDir)
+	fmt.Fprintf(stderr, "unknown command %q\n\n"+usageText, cmd, defDir)
 	return 2
 }
 

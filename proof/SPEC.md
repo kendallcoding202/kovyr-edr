@@ -9,12 +9,18 @@ follow it and agree on the shared test vectors:
 
 | Implementation | Location | Role |
 |---|---|---|
-| Go | `engine/` (`proofctl`) | library for the future endpoint agent, demo generator, offline verifier CLI |
-| Python | `engine/python/` (`proofengine`) | server side: statement building, ingest, log, witnesses, pack build and verify |
-| JavaScript | `demo/verifier/` | the in-browser verifier (WebCrypto only, no third-party code) |
+| Go | `kovyr-edr/proof/` | **canonical**: the library the endpoint agent and its dev receiver use, the reference ingest, log and offline verifier |
+| Python | `kendallcoding202.github.io/proof-of-protection/engine/python/` (`proofengine`) | server side: statement building, ingest, log, witnesses, pack build and verify |
+| JavaScript | `kendallcoding202.github.io/proof-of-protection/demo/verifier/` | the in-browser verifier (WebCrypto only, no third-party code) |
 
-Normative data files: `engine/testdata/vectors/posture-schema.json` (the
-statement schema, generated from `engine/posture/schema.go`) and the test
+The Go engine moved into `kovyr-edr/proof/` (imported from the website repo
+at commit `3a2773b`); that copy and this file are now canonical. The
+Python and JavaScript implementations follow this specification as it was
+at the import. They do not yet implement the `endpoint/v1` predicate (6.5)
+or lost-report gaps (8, 13).
+
+Normative data files: `proof/testdata/vectors/posture-schema.json` (the
+statement schema, generated from `proof/posture/schema.go`) and the test
 vectors next to it. Where this text and the schema disagree, the schema wins
 and this text is a bug.
 
@@ -31,11 +37,14 @@ in exactly one place per language:
 | Product name | `Kovyr Proof` (placeholder) | `brand.Product` | `brand.PRODUCT` | `BRAND.product` |
 | Posture predicate type | `https://kovyr.com/attestation/posture/v1` | `brand.PredicatePosture` | `brand.PREDICATE_POSTURE` | `ProofSchema.predicate_types.posture` (generated) |
 | Enrollment predicate type | `https://kovyr.com/attestation/enrollment/v1` | `brand.PredicateEnrollment` | `brand.PREDICATE_ENROLLMENT` | `ProofSchema.predicate_types.enrollment` (generated) |
+| Endpoint predicate type | `https://kovyr.com/attestation/endpoint/v1` | `brand.PredicateEndpoint` | not ported yet | `ProofSchema.predicate_types.endpoint` (generated, once ported) |
 | Demo log origin | `kovyr.com/proof/demo-log` | `brand.DemoLogOrigin` | n/a | `BRAND.logOrigin` |
 
-To rename: edit `engine/brand/brand.go` and `engine/python/proofengine/brand.py`,
-then regenerate (`proofctl demo generate`, `proofctl vectors`,
-`python3 -I sync_schema.py`). Statements embed the predicate type and
+To rename: edit `proof/brand/brand.go` and `engine/python/proofengine/brand.py`,
+then regenerate (the vectors with
+`go test ./proof/internal/vectors -run TestVectorsAreUpToDate -update`; the
+website demo with `proofctl demo generate` in the website repo; the Python
+schema with `python3 -I sync_schema.py`). Statements embed the predicate type and
 checkpoints embed the origin, so data signed before a rename keeps the old
 values and stays verifiable; a verifier that must accept both lists both.
 
@@ -135,13 +144,13 @@ Every statement is an [in-toto Statement v1](https://github.com/in-toto/attestat
 ```json
 {"_type":"https://in-toto.io/Statement/v1",
  "predicate":{...},
- "predicateType":"<posture or enrollment predicate type>",
+ "predicateType":"<posture, endpoint or enrollment predicate type>",
  "subject":[{"digest":{"sha256":"<key ID of the attester (or tenant)>"},"name":"<attester or tenant ID>"}]}
 ```
 
 Exactly one subject: the key-holder the statement is about. Its `name` is the
-attester ID (posture) or the enrolled tenant or attester ID (enrollment), and
-its digest is that key's key ID.
+attester ID (posture, endpoint) or the enrolled tenant or attester ID
+(enrollment), and its digest is that key's key ID.
 
 ### 6.1 The content rule
 
@@ -275,8 +284,9 @@ registries, sequence numbers and chains are per (tenant, attester).
 
 For the endpoint agent's later stages, in the same schema language and under
 the same rules (no free text, no paths, no host names). These would be new
-sections of the posture predicate for `attester_kind` `device_agent`, or a new
-predicate type `.../endpoint/v1`; they are not accepted by today's verifiers.
+sections of the endpoint predicate (6.5); they are not accepted by today's
+verifiers. `sensor_health`, listed here first, is now a standard field of
+the endpoint predicate (6.5) with exactly this schema.
 
 ```json
 "detection": {"t":"object","fields":{
@@ -306,6 +316,64 @@ Process names, command lines, file paths and user names stay on the device.
 Response actions require an approval bound to a hardware key; the approval
 would be its own statement, linked by sequence and `prev` like every other.
 
+### 6.5 Endpoint predicate (`.../endpoint/v1`)
+
+The Kovyr endpoint agent's heartbeat: the agent's own health and the
+protection status of the machine it runs on. One statement per heartbeat
+interval (and extra ones when the agent has something urgent to say).
+Evidence strength: *software* while device keys are software keys
+(section 14).
+
+**Status: draft.** Until enrollment for endpoint agents ships, statements of
+this type are development-only and are never logged; fields may still be
+added without a new version, and older development statements need not stay
+valid.
+
+Common fields, with the names and formats of the posture common fields
+(6.2):
+
+| Field | Type |
+|---|---|
+| `attester` | device ID (`dev_` + 16 hex); must equal the subject name and be derived from the subject digest (the signing key's ID) |
+| `attester_kind` | enum `device_agent` |
+| `seq`, `prev`, `nonce`, `salt`, `observed_at` | as in 6.2 |
+| `agent_version` | `{"major","minor","patch"}`, integers 0 to 65535 (never a version string) |
+| `sensor_health` | the 6.4 schema, unchanged: `sensor_running`, `tamper_detected` (booleans), `driver_blocklist_version`, `policy_version` (integers 0 to 2^53 − 1) |
+| `protection` | the protection checks, below |
+
+**No tenant yet.** `tenant` (6.2) and the link from `seq` 1 to the
+attester's enrollment record arrive with endpoint enrollment. Until then an
+endpoint statement has no `tenant` field and `seq` 1 carries `prev` = 64
+zeros. Such a statement is verified on its own (schema, a signature by the
+enrolled device key, the chain and nonce rules of section 8) by the ingest
+server that holds the device's key. It cannot be bound to a firm, so it never
+appears in a Proof Pack, and pack verifiers refuse it (`enrollment` step).
+The enrollment change adds `tenant` as a required field.
+
+**`protection`.** Integers use `-1` for "unknown or not applicable". Each
+multi-value check has a `state` (`ok`, `unknown`, `not_applicable`). A check
+that did not run claims no values: when `state` is not `ok`, its counts are
+`-1`, its toggles are `unknown`, and `edr` has no `agents` field. The schema
+expresses this with a switch on `state`.
+
+| Field | Type |
+|---|---|
+| `security_center` | `state`; `products`, `enabled`, `up_to_date`: integers 0 to 32 when `ok` (`enabled`, `up_to_date` ≤ `products`), else `-1` |
+| `defender` | `state`; `am_service`, `antivirus`, `real_time_protection`, `behavior_monitor`, `tamper_protection`: enum `on`, `off`, `unknown` (only `unknown` when not `ok`); `signature_age_days`: integer −1 to 65535 (−1 when not `ok`); `running_mode`: enum `normal`, `passive`, `edr_block`, `sxs_passive`, `unknown` (only `unknown` when not `ok`) |
+| `edr` | `state`; when `ok`, `agents`: result list (6.1, at most 8 items) of `{vendor, running}`, sorted and unique by `vendor` |
+| `edr.agents.items[].vendor` | enum `bitdefender`, `carbon_black`, `cortex_xdr`, `crowdstrike`, `eset`, `huntress`, `malwarebytes`, `microsoft_defender_endpoint`, `sentinelone`, `sophos`, `symantec`, `trend_micro`, `webroot` |
+| `edr.agents.items[].running` | boolean |
+| `bitlocker_os_volume` | enum `on`, `off`, `not_applicable`, `unknown` |
+| `firewall_profiles_on` | integer −1 to 3 |
+| `vulnerable_driver_blocklist` | enum `on`, `off`, `default` (registry value absent: Windows' own default applies), `unknown` |
+| `memory_integrity` | enum `on`, `off`, `unknown` |
+
+`edr.agents` lists each known EDR or antivirus agent found installed, one
+record per vendor, never a service or process name; `total` is the number of
+vendors found. If more are found than fit, agents that are **not** running
+are kept first (they are the alarm), then the rest by vendor name, and
+`truncated` is `true`.
+
 ## 7. Envelopes
 
 Statements travel in [DSSE v1](https://github.com/secure-systems-lab/dsse)
@@ -326,14 +394,28 @@ two (tenant, then attester).
 
 * **Sequence.** Each attester numbers its reports 1, 2, 3, … per tenant. A
   number is spent once signed, even if the upload fails.
+* **Lost reports.** A report that is signed but never reaches the log (the
+  upload failed for good, the attester's queue dropped it, or ingest refused
+  it) leaves a hole in the numbering. Ingest accepts the next report anyway
+  and records the hole as a **lost-report gap**, so one lost upload cannot
+  stop a device from ever reporting again. Verifiers disclose every hole
+  (section 13); offline, a report that never reached the log and a report
+  left out of a pack look the same, so both are disclosed, neither hidden.
 * **Hash chain.** `prev` is SHA-256 of the previous report's exact payload
   bytes; report 1 points at the enrollment payload. Deleting, reordering or
-  inserting a report breaks the chain.
+  inserting a report breaks the chain. Across a hole, `prev` names a report
+  the checker never saw and cannot be checked; the next contiguous pair is
+  checked again.
 * **Server nonce.** Before each report the attester asks the ingest server
   for a 128-bit nonce, issued for that attester and used once. The server
   refuses unknown, reused, expired (older than 10 minutes) or misdirected
   nonces, and statements whose `observed_at` is more than 5 minutes from its
   clock. Offline, verifiers check that no nonce appears twice in a pack.
+* **Offline periods are gaps.** Because of the nonce and the clock window,
+  an attester that cannot reach the ingest server makes no report at all;
+  the silence shows as a gap (section 13). Nothing is signed offline for
+  later upload (see section 18 for a possible lower-strength offline
+  record).
 
 ## 9. The log
 
@@ -356,8 +438,11 @@ The log is a public, append-only Merkle tree of **commitments**:
   the digest. These files are everything the public sees.
 * **Ingest checks** (before anything is logged): canonical, schema-valid
   statement; a known, matching enrollment; valid signature(s); fresh unused
-  nonce; `seq` exactly one more than the last; `prev` matching; clock within
-  ±5 minutes. Then two timestamps are requested and the digest is appended.
+  nonce; `seq` greater than the last accepted one; `prev` matching when
+  `seq` is exactly one more; clock within ±5 minutes. Then two timestamps are
+  requested and the digest is appended. A `seq` more than one ahead is
+  accepted and its hole recorded as a lost-report gap (section 8); a `seq` at
+  or below the last is a replay and refused.
 * **Evidence.** The envelope, its timestamp tokens and its leaf index form
   the private evidence record, kept by the server (encrypted at rest in
   production) and by the firm's app.
@@ -434,6 +519,12 @@ required to match exactly (canonical JSON equality):
   `connector_reports` (count) and `device_enrollments` (enrolled device agents
   in the pack).
 * `gaps`: `[{attester, attester_kind, device_number, from, to, days}]`.
+* `lost_reports`: `[{attester, attester_kind, device_number, first_seq,
+  last_seq, count, next_report}]`, one per hole in an attester's numbering
+  between two evidence reports: the missing numbers, how many, and the date
+  of the report after the hole. Sorted by attester, then `first_seq`. The key
+  is present only when the list is not empty, so a summary without lost
+  reports is unchanged from earlier versions.
 * `lapses`: `[{attester, date, seq, checks}]`, where `checks` is the sorted
   list of failing checks in one valid report: `disk_encryption` (not `on`),
   `edr_running`, `firewall`, `screen_lock`, `os_patch` (`out_of_date` or
@@ -466,8 +557,8 @@ all implementations.
 |---|---|---|
 | 1 | `signatures` | Genesis is signed by its own tenant key; each enrollment is signed by the pack's tenant key then by the enrolled key; each posture statement has exactly one signature, by the key enrolled for its attester, valid over the PAE. |
 | 2 | `content` | Every payload is canonical, has an accepted predicate type, and obeys the schema (section 6). |
-| 3 | `enrollment` | Exactly one genesis, for the pack's tenant; tenant ID derived from its key; name commitment matches; each attester ID derived from its key and kind; enrollments after genesis; every posture statement from an attester enrolled in this pack (same tenant and kind, enrolled earlier in the log and in time); the pack holds at least as many device enrollments as the latest connector report says are enrolled. |
-| 4 | `sequence` | No nonce appears twice (an identical payload logged twice is a replay); per attester, sequence numbers are contiguous with no duplicates, each `prev` matches the previous payload (or the enrollment for `seq` 1), and order agrees with log index and time. |
+| 3 | `enrollment` | Exactly one genesis, for the pack's tenant; tenant ID derived from its key; name commitment matches; each attester ID derived from its key and kind; enrollments after genesis; every posture statement from an attester enrolled in this pack (same tenant and kind, enrolled earlier in the log and in time); no endpoint statement without a tenant (6.5); the pack holds at least as many device enrollments as the latest connector report says are enrolled. |
+| 4 | `sequence` | No nonce appears twice (an identical payload logged twice is a replay); per attester, no sequence number appears twice, each `prev` matches the previous payload where that report is present (or the enrollment for `seq` 1), and order agrees with log index and time. A hole in the numbering is a lost-report gap: it makes this step a **warning** (not a failure) and is disclosed in the summary's `lost_reports`. |
 | 5 | `timestamps` | Each entry has valid tokens from at least `timestamp_quorum` distinct trusted authorities over its entry digest, agreeing within `max_tsa_spread_s`; the earliest token time is no more than `max_report_delay_s` after the claimed time (`observed_at` or `enrolled_at`) and no more than `max_clock_skew_s` before it. |
 | 6 | `inclusion` | Each entry's leaf (from its envelope) is proven in the checkpoint's tree at its index; no two entries share an index. |
 | 7 | `checkpoint` | The checkpoint parses, its origin is the trusted log's, and the trusted log key signed it. |
@@ -480,7 +571,9 @@ all implementations.
 attester that must report daily (`device_agent`, `cloud_connector`,
 `external_scanner`), every range day after its enrollment day without a
 valid report; consecutive days form one gap. Staff attesters report on events
-and have no gaps. A gap is not a failure: a pack verifies with gaps disclosed.
+and have no gaps. **Lost reports**: for each attester, every hole in the
+sequence numbers between two consecutive evidence reports. A gap is not a
+failure: a pack verifies with gaps and lost reports disclosed.
 
 The pack **verifies** when no step fails.
 
@@ -518,6 +611,9 @@ The pack **verifies** when no step fails.
   range;
 * that a compromised device told the truth. Hardware keys raise the bar; a
   software key can be stolen by someone with admin rights on that device;
+* whether a lost report never reached the log or was left out of the pack:
+  both show as the same disclosed hole in the device's numbering (section
+  18 describes how signed delivery receipts could tell them apart);
 * that staff-attested events happened as recorded;
 * the firm's legal identity: the name is bound at onboarding, outside this
   protocol;
@@ -531,8 +627,9 @@ The pack **verifies** when no step fails.
 | Edited report | Flip "encryption off" to "on" | Signature over the exact payload; chain hash; entry digest in TSA tokens and the log | `signatures`, `sequence`, `timestamps`, `inclusion`, `gaps` |
 | Replay | Re-send last spring's all-green report | One-time server nonce, sequence numbers, chain hash; TSA time | `sequence`, `timestamps` (and ingest) |
 | Backdating | Set the clock back to fill a gap | Two independent TSA tokens over the entry digest; ingest clock check | `timestamps` |
-| Quiet erasure (firm) | Delete the bad day from the pack | Hash chain and sequence; summary recomputed | `sequence`, `gaps` |
-| Quiet erasure (vendor) | Delete the bad day from the log and re-sign | The device's hash chain; the firm's saved checkpoints; witnesses refuse inconsistent checkpoints | `sequence`, `consistency`, `witnesses` |
+| Quiet erasure (firm) | Delete the bad day from the pack | Hash chain and sequence: the hole is disclosed as lost reports, and as a gap if the day has no other report; summary recomputed. Disclosed, no longer a failure, since lost uploads are accepted (section 8) | `sequence` (warning), `gaps` |
+| Lost upload | One heartbeat never arrives; strict numbering would lock the device out for good | Ingest accepts the next report and records the hole; verifiers disclose it | `sequence` (warning), `gaps` |
+| Quiet erasure (vendor) | Delete the bad day from the log and re-sign | The device's hash chain (the hole is disclosed); the firm's saved checkpoints; witnesses refuse inconsistent checkpoints | `sequence` (warning), `consistency`, `witnesses` |
 | Split view (cheating vendor) | Show the insurer a different history from the owner | A quorum of independent witnesses must cosign the same tree | `witnesses` |
 | Hidden gap or lapse | Edit the one-page summary | Summary recomputed from evidence | `gaps` |
 | Omitted device | Enroll or pack only the good laptops | Connector's enrolled count must be covered; coverage against the platform's known devices is disclosed | `enrollment` (count), disclosure |
@@ -572,6 +669,18 @@ predicate version.
 
 ## 18. Other future work
 
+* **Offline records backed by the TPM clock.** Today an offline device makes
+  no report, and the silence is a gap (section 8). A device with a TPM could
+  sign records while offline, each bound to the TPM's monotonic clock and
+  reset counter (a TPM2_Quote or a signed TPM2_GetTime), and upload them
+  later. Without a server nonce or timestamps from the time they were made,
+  such records prove less than a live report: they would form a separate,
+  lower evidence strength (for example *offline, TPM-clocked*), be shown as
+  such, and never close a gap by themselves.
+* **Signed delivery receipts.** Each report could carry the highest `seq`
+  the ingest server acknowledged. A verifier could then tell a report that
+  never reached the log (disclosed as lost) from one the log holds but a
+  pack left out (a failure), which section 8 cannot do today.
 * Verify TPM 2.0 key attestation and Apple Managed Device Attestation, then
   grant *hardware* strength.
 * RFC 3161 timestamp tokens; real independent witnesses speaking the
@@ -581,10 +690,13 @@ predicate version.
 
 ## 19. Test vectors
 
-`engine/testdata/vectors/` (regenerate with `proofctl vectors`; Go tests fail
-if they drift; keys derive from fixed seeds and all signatures are
-deterministic): `canonicalization.json`, `dsse.json`, `merkle.json`,
-`note.json`, `statement.json`, `mini-pack.json` with
-`mini-trust-policy.json` and `mini-pack-expected.json`, and
-`posture-schema.json`. See the README in that folder. The Go, Python and
-JavaScript implementations all pass them.
+`proof/testdata/vectors/` (regenerate with
+`go test ./proof/internal/vectors -run TestVectorsAreUpToDate -update`; Go
+tests fail if they drift; keys derive from fixed seeds and all signatures
+are deterministic): `canonicalization.json`, `dsse.json`, `merkle.json`,
+`note.json`, `statement.json` (posture, scan and endpoint statements),
+`mini-pack.json` with `mini-trust-policy.json` and
+`mini-pack-expected.json`, and `posture-schema.json`. See the README in that
+folder. The Go implementation passes them all; the Python and JavaScript
+implementations passed them as of the import and do not yet know the
+endpoint vectors or lost-report gaps.

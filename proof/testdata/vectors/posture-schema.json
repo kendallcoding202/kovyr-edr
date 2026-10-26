@@ -437,6 +437,114 @@
        "t": "int",
        "min": 1,
        "max": 2147483647
+      },
+      "tripwire": {
+       "t": "object",
+       "fields": {
+        "state": {
+         "t": "enum",
+         "values": [
+          "not_applicable",
+          "ok",
+          "unknown"
+         ]
+        }
+       },
+       "switch": {
+        "on": "state",
+        "cases": {
+         "not_applicable": {},
+         "ok": {
+          "deleted": {
+           "t": "enum",
+           "values": [
+            "0",
+            "1000_plus",
+            "100_999",
+            "10_99",
+            "1_9"
+           ]
+          },
+          "extension_changed": {
+           "t": "enum",
+           "values": [
+            "0",
+            "1000_plus",
+            "100_999",
+            "10_99",
+            "1_9"
+           ]
+          },
+          "folders_watched": {
+           "t": "int",
+           "min": 0,
+           "max": 32
+          },
+          "modified": {
+           "t": "enum",
+           "values": [
+            "0",
+            "1000_plus",
+            "100_999",
+            "10_99",
+            "1_9"
+           ]
+          },
+          "reason": {
+           "t": "enum",
+           "values": [
+            "mass_extension_change",
+            "none",
+            "ransom_notes"
+           ]
+          },
+          "renamed": {
+           "t": "enum",
+           "values": [
+            "0",
+            "1000_plus",
+            "100_999",
+            "10_99",
+            "1_9"
+           ]
+          },
+          "suspicious_created": {
+           "t": "enum",
+           "values": [
+            "0",
+            "1000_plus",
+            "100_999",
+            "10_99",
+            "1_9"
+           ]
+          },
+          "triggered": {
+           "t": "bool"
+          },
+          "unknown_activity": {
+           "t": "enum",
+           "values": [
+            "0",
+            "1000_plus",
+            "100_999",
+            "10_99",
+            "1_9"
+           ]
+          },
+          "window": {
+           "t": "enum",
+           "values": [
+            "10s",
+            "120s",
+            "300s",
+            "30s",
+            "60s"
+           ]
+          }
+         },
+         "unknown": {}
+        }
+       }
       }
      }
     },

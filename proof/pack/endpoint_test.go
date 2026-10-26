@@ -41,6 +41,7 @@ func TestEndpointStatementInAPackIsRefused(t *testing.T) {
 			"sensor_health": map[string]any{"sensor_running": true, "tamper_detected": false,
 				"driver_blocklist_version": int64(0), "policy_version": int64(0)},
 			"schedule": map[string]any{"interval_s": int64(900), "deferred_s": int64(0), "heavy_checks_skipped": false},
+			"tripwire": map[string]any{"state": "not_applicable"},
 			"protection": map[string]any{
 				"security_center":     map[string]any{"state": "not_applicable", "products": int64(-1), "enabled": int64(-1), "up_to_date": int64(-1)},
 				"defender":            map[string]any{"state": "unknown", "am_service": "unknown", "antivirus": "unknown", "real_time_protection": "unknown", "behavior_monitor": "unknown", "tamper_protection": "unknown", "signature_age_days": int64(-1), "running_mode": "unknown"},

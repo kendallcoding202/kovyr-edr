@@ -374,6 +374,9 @@ func statementVectors() (any, error) {
 		{"EDR service name", `{"running":true,"vendor":"crowdstrike"}`, `{"running":true,"service":"CSFalconService","vendor":"crowdstrike"}`},
 		{"counts from a check that did not run", `"security_center":{"enabled":1,"products":1,"state":"ok"`, `"security_center":{"enabled":1,"products":1,"state":"unknown"`},
 		{"tenant before endpoint enrollment", `"seq":12`, `"seq":12,"tenant":"tnt_0000000000000000"`},
+		{"file name in the tripwire", `"window":"60s"`, `"last_file":"taxes.pdf.locked","window":"60s"`},
+		{"exact count in the tripwire", `"deleted":"0"`, `"deleted":0`},
+		{"trip without a reason", `"reason":"mass_extension_change"`, `"reason":"none"`},
 		{"EDR agents as a bare array", `"agents":{"items":[{"running":true,"vendor":"crowdstrike"},{"running":false,"vendor":"huntress"}],"total":2,"truncated":false}`, `"agents":[{"running":true,"vendor":"crowdstrike"},{"running":false,"vendor":"huntress"}]`},
 	} {
 		bad := bytes.Replace(epPayload, []byte(c.from), []byte(c.to), 1)
@@ -427,6 +430,9 @@ func endpointPayload(dev sigs.Signer, at time.Time) ([]byte, error) {
 			"sensor_health": map[string]any{"sensor_running": true, "tamper_detected": false,
 				"driver_blocklist_version": int64(0), "policy_version": int64(0)},
 			"schedule": map[string]any{"interval_s": int64(1800), "deferred_s": int64(60), "heavy_checks_skipped": false},
+			"tripwire": map[string]any{"state": "ok", "triggered": true, "reason": "mass_extension_change", "window": "60s",
+				"folders_watched": int64(6), "renamed": "100_999", "extension_changed": "100_999", "modified": "100_999",
+				"deleted": "0", "suspicious_created": "1_9", "unknown_activity": "0"},
 			"protection": map[string]any{
 				"security_center": map[string]any{"state": "ok", "products": int64(1), "enabled": int64(1), "up_to_date": int64(1)},
 				"defender": map[string]any{"state": "ok", "am_service": "on", "antivirus": "on", "real_time_protection": "off",

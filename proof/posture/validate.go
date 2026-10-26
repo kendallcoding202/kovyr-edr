@@ -343,6 +343,9 @@ func ValidateValue(obj map[string]any) (*Statement, error) {
 		if st.Str("attester") != PrefixDevice+st.SubjectDigest[:16] {
 			return nil, fail("predicate.attester", "must be derived from the key in subject[0].digest")
 		}
+		if st.Str("tripwire.state") == "ok" && st.Bool("tripwire.triggered") != (st.Str("tripwire.reason") != "none") {
+			return nil, fail("predicate.tripwire.reason", "must be none exactly when triggered is false")
+		}
 	case EnrollmentPredicateType():
 		want := st.Str("tenant")
 		if st.Str("kind") == "attester" {

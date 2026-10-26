@@ -173,6 +173,13 @@ An in-toto Statement v1 (SPEC 6), canonical JSON, one subject:
   (`ok`, `unknown`, `not_applicable`), and when it is not `ok` its values are
   unknown. `edr.agents` is sorted by vendor, one entry per vendor, and never
   holds a service name.
+* `security_center` is `not_applicable` on server editions of Windows:
+  Security Center is a client feature, and CI runners have the namespace
+  with no products in it.
+* Defender for Endpoint (`Sense`) is listed only when the machine is
+  onboarded (`OnboardingState` = 1) or the service is running. Windows
+  ships the service everywhere, so an un-onboarded machine is not "MDE
+  not running".
 
 Content rule (SPEC 6.1, CLAUDE.md section 3): only booleans, integers, enums
 and timestamps, plus fixed-format protocol values. The builder takes only

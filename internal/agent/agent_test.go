@@ -17,6 +17,7 @@ import (
 type fakeTransport struct {
 	mu        sync.Mutex
 	nonces    int
+	devices   []string
 	chalErr   error
 	posted    [][]byte
 	postErr   func(n int) error // n counts post attempts from 1
@@ -24,9 +25,10 @@ type fakeTransport struct {
 	lastNonce proof.Nonce
 }
 
-func (f *fakeTransport) Challenge(ctx context.Context) (proof.Nonce, error) {
+func (f *fakeTransport) Challenge(ctx context.Context, device string) (proof.Nonce, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.devices = append(f.devices, device)
 	if f.chalErr != nil {
 		return proof.Nonce{}, f.chalErr
 	}
@@ -76,7 +78,7 @@ func decode(t *testing.T, env []byte) (*proof.Envelope, *proof.Statement) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	st, err := proof.ValidateSensorHealth(e.Payload)
+	st, err := proof.ValidateStatement(e.Payload)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,6 +104,11 @@ func TestBeatsFormAChainAcrossRestarts(t *testing.T) {
 	if len(tr.posted) != 4 || a.QueueLen() != 0 {
 		t.Fatalf("posted %d, queued %d", len(tr.posted), a.QueueLen())
 	}
+	for _, d := range tr.devices {
+		if d != s.Public().DeviceID() {
+			t.Fatalf("challenge asked for %q, want this device's ID", d)
+		}
+	}
 	prev := proof.GenesisPrev
 	for i, env := range tr.posted {
 		e, st := decode(t, env)
@@ -114,42 +121,45 @@ func TestBeatsFormAChainAcrossRestarts(t *testing.T) {
 		if st.Prev != prev {
 			t.Errorf("seq %d: prev does not link to the previous payload", st.Seq)
 		}
-		if st.NonceSource != proof.NonceServer || st.KeyProtection != proof.KeySoftware || st.HeartbeatIntervalS != 900 {
+		if st.SensorHealth != SensorHealth() || st.AgentVersion != Version {
 			t.Errorf("seq %d: header %+v", st.Seq, st)
 		}
 		prev = proof.PayloadDigest(e.Payload)
 	}
 }
 
-func TestOfflineBeatsUseAgentNoncesAndWaitInTheQueue(t *testing.T) {
+// SPEC section 8: a report needs a server nonce. Offline, the agent makes
+// no statement and spends no seq; statements whose upload failed wait in
+// the queue and go out oldest first.
+func TestOfflineMakesNoStatementAndSpendsNoSeq(t *testing.T) {
 	dir, s := t.TempDir(), newSigner(t)
-	tr := &fakeTransport{chalErr: errors.New("offline"), postErr: func(int) error { return errors.New("offline") }}
+	tr := &fakeTransport{chalErr: errors.New("offline")}
 	a := newAgent(t, dir, s, tr)
 	for i := 0; i < 3; i++ {
-		st, err := a.Beat(context.Background())
-		if err != nil {
-			t.Fatal(err)
+		if st, err := a.Beat(context.Background()); !errors.Is(err, ErrNoChallenge) || st != nil {
+			t.Fatalf("offline beat: %v, %v", st, err)
 		}
-		if st.NonceSource != proof.NonceAgent {
-			t.Errorf("offline statement claims nonce source %v", st.NonceSource)
+	}
+	if a.State().Seq != 0 || a.QueueLen() != 0 {
+		t.Fatalf("offline beats spent seq %d / queued %d", a.State().Seq, a.QueueLen())
+	}
+	// Challenges work but uploads fail: statements queue up.
+	tr.chalErr = nil
+	tr.postErr = func(int) error { return errors.New("upload failed") }
+	for i := 0; i < 3; i++ {
+		if _, err := a.Beat(context.Background()); err != nil {
+			t.Fatal(err)
 		}
 	}
 	if err := a.Flush(context.Background()); err == nil {
-		t.Fatal("flush succeeded while offline")
+		t.Fatal("flush succeeded while uploads fail")
 	}
 	if a.QueueLen() != 3 {
 		t.Fatalf("queue %d, want 3 kept for retry", a.QueueLen())
 	}
-	// Back online: all three go out, oldest first, then a challenged one.
-	tr.chalErr, tr.postErr = nil, nil
-	if _, err := a.Beat(context.Background()); err != nil {
-		t.Fatal(err)
-	}
+	tr.postErr = nil
 	if err := a.Flush(context.Background()); err != nil {
 		t.Fatal(err)
-	}
-	if len(tr.posted) != 4 {
-		t.Fatalf("posted %d", len(tr.posted))
 	}
 	for i, env := range tr.posted {
 		_, st := decode(t, env)
@@ -157,9 +167,12 @@ func TestOfflineBeatsUseAgentNoncesAndWaitInTheQueue(t *testing.T) {
 			t.Errorf("out of order: position %d has seq %d", i, st.Seq)
 		}
 	}
-	_, last := decode(t, tr.posted[3])
-	if last.NonceSource != proof.NonceServer || last.Nonce != tr.lastNonce {
-		t.Error("online statement does not carry the server nonce")
+	if len(tr.posted) != 3 {
+		t.Fatalf("posted %d", len(tr.posted))
+	}
+	_, last := decode(t, tr.posted[2])
+	if last.Nonce != tr.lastNonce {
+		t.Error("statement does not carry the server nonce")
 	}
 }
 
@@ -224,25 +237,25 @@ func TestIntervalBounds(t *testing.T) {
 	}
 }
 
-// A hostile challenge (one carrying a command) changes nothing: the agent
-// treats it as no challenge, signs with its own nonce and carries on.
+// A hostile challenge (one carrying a command) changes nothing: it is not
+// a nonce, so no statement is made, no seq is spent and nothing is written.
 func TestHostileChallengeIsIgnored(t *testing.T) {
 	dir, s := t.TempDir(), newSigner(t)
 	_, err := ParseChallenge([]byte(`{"command":"isolate","nonce":"00112233445566778899aabbccddeeff"}`))
+	if !errors.Is(err, ErrNotANonce) {
+		t.Fatalf("parse: %v", err)
+	}
 	tr := &fakeTransport{chalErr: err}
 	a := newAgent(t, dir, s, tr)
-	st, berr := a.Beat(context.Background())
-	if err == nil || berr != nil {
-		t.Fatalf("parse err %v, beat err %v", err, berr)
+	if _, berr := a.Beat(context.Background()); !errors.Is(berr, ErrNoChallenge) {
+		t.Fatalf("beat: %v", berr)
 	}
-	if st.NonceSource != proof.NonceAgent {
-		t.Error("the hostile nonce was used")
+	if a.State().Seq != 0 || a.QueueLen() != 0 {
+		t.Error("a hostile challenge led to a statement")
 	}
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
-		switch e.Name() {
-		case "queue", stateFile:
-		default:
+		if e.Name() != "queue" {
 			t.Errorf("unexpected file %s written", e.Name())
 		}
 	}
@@ -324,6 +337,46 @@ func TestRunLoopBeatsOnScheduleAndBacksOff(t *testing.T) {
 		if st.Seq != uint32(i+1) {
 			t.Fatalf("delivery %d has seq %d", i, st.Seq)
 		}
+	}
+}
+
+func TestRunLoopRetriesAMissedChallengeSoon(t *testing.T) {
+	dir, s := t.TempDir(), newSigner(t)
+	tr := &fakeTransport{chalErr: errors.New("offline")}
+	ctx, cancel := context.WithCancel(context.Background())
+	clk := &fakeClock{now: time.Date(2026, 10, 26, 9, 0, 0, 0, time.UTC)}
+	clk.onWait = func(n int) {
+		if n == 3 {
+			tr.mu.Lock()
+			tr.chalErr = nil // back online after three failed tries
+			tr.mu.Unlock()
+		}
+		if n >= 6 {
+			cancel()
+		}
+	}
+	a, err := New(Config{Dir: dir, Clock: clk, Backoff: Backoff{Base: 5 * time.Second, Rand: func() float64 { return 0 }}},
+		s, checks.NewRunner(checks.HealthyFake()), tr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.Run(ctx)
+	// Three missed challenges retried after 2.5s, 5s, 10s, not 15 minutes.
+	for i, w := range []time.Duration{2500 * time.Millisecond, 5 * time.Second, 10 * time.Second} {
+		if clk.waits[i] != w {
+			t.Errorf("wait %d is %v, want %v", i, clk.waits[i], w)
+		}
+	}
+	if clk.waits[3] != DefaultInterval {
+		t.Errorf("after a successful beat the wait is %v, want the interval", clk.waits[3])
+	}
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+	if len(tr.posted) == 0 {
+		t.Fatal("no heartbeat after coming back online")
+	}
+	if _, st := decode(t, tr.posted[0]); st.Seq != 1 {
+		t.Errorf("first delivered seq is %d; failed tries must not spend seqs", st.Seq)
 	}
 }
 

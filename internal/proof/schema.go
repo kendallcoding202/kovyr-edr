@@ -8,9 +8,10 @@ import (
 	"time"
 )
 
-// The sensor_health schema as data, in the style of the engine's posture
-// schema: every object lists exactly its allowed fields, every string is an
-// enum, a constant, a timestamp, fixed-length hex or a key-derived ID.
+// The statement schema as data, in the engine's schema language (SPEC
+// section 6): every object lists exactly its allowed fields, every string
+// is an enum, a constant, a timestamp, fixed-length hex or a key-derived
+// ID.
 // Unknown fields are refused first, so a smuggled "hostname" or "path"
 // fails with a plain message.
 
@@ -50,7 +51,18 @@ func arrayOf(of *spec, max int, key string) *spec {
 	return &spec{t: "array", of: of, maxItems: max, key: key}
 }
 
-func checksSpec() *spec {
+// sensorHealthSpec is SPEC section 6.4 "sensor_health", verbatim.
+func sensorHealthSpec() *spec {
+	return object(map[string]*spec{
+		"sensor_running":           boolean(),
+		"tamper_detected":          boolean(),
+		"driver_blocklist_version": integer(0, MaxVersion),
+		"policy_version":           integer(0, MaxVersion),
+	})
+}
+
+// protectionSpec is not in SPEC yet (proposed in docs/api.md).
+func protectionSpec() *spec {
 	sc := object(map[string]*spec{
 		"state":      enumOf(availabilityNames),
 		"products":   integer(UnknownCount, MaxAVProducts),
@@ -91,15 +103,13 @@ func predicateSpec() *spec {
 		"seq":           integer(1, 1<<31-1),
 		"prev":          hexN(64),
 		"nonce":         hexN(32),
-		"nonce_source":  enumOf(nonceSourceNames),
 		"salt":          hexN(64),
 		"observed_at":   timestamp(),
 		"agent_version": object(map[string]*spec{
 			"major": integer(0, 65535), "minor": integer(0, 65535), "patch": integer(0, 65535),
 		}),
-		"key_protection":       enumOf(keyProtectionNames),
-		"heartbeat_interval_s": integer(MinIntervalS, MaxIntervalS),
-		"checks":               checksSpec(),
+		"sensor_health": sensorHealthSpec(),
+		"protection":    protectionSpec(),
 	})
 }
 
@@ -112,7 +122,7 @@ func statementSpec() *spec {
 	return object(map[string]*spec{
 		"_type":         constant(InTotoStatementType),
 		"subject":       s,
-		"predicateType": constant(PredicateSensorHealth),
+		"predicateType": constant(PredicateEndpoint),
 		"predicate":     predicateSpec(),
 	})
 }
@@ -136,29 +146,29 @@ func checkStatement(obj map[string]any) error {
 	if p["attester"] != DevicePrefix+digest[:16] {
 		return failf("predicate.attester", "must be derived from the key in subject[0].digest")
 	}
-	c := p["checks"].(map[string]any)
+	c := p["protection"].(map[string]any)
 	// A check that did not run must not claim values, and one that ran
 	// must report real counts. This keeps "0" and "unknown" distinct.
 	sc := c["security_center"].(map[string]any)
-	if err := countsMatchState("predicate.checks.security_center", sc, true, "products", "enabled", "up_to_date"); err != nil {
+	if err := countsMatchState("predicate.protection.security_center", sc, true, "products", "enabled", "up_to_date"); err != nil {
 		return err
 	}
 	// Defender can be readable while one property is NULL, so its age may
 	// be unknown even when state is ok.
 	d := c["defender"].(map[string]any)
-	if err := countsMatchState("predicate.checks.defender", d, false, "signature_age_days"); err != nil {
+	if err := countsMatchState("predicate.protection.defender", d, false, "signature_age_days"); err != nil {
 		return err
 	}
 	if d["state"] != "ok" {
 		for _, k := range []string{"am_service", "antivirus", "real_time_protection", "behavior_monitor", "tamper_protection", "running_mode"} {
 			if d[k] != "unknown" {
-				return failf("predicate.checks.defender."+k, "must be unknown when state is %v", d["state"])
+				return failf("predicate.protection.defender."+k, "must be unknown when state is %v", d["state"])
 			}
 		}
 	}
 	e := c["edr"].(map[string]any)
 	if e["state"] != "ok" && len(e["agents"].([]any)) != 0 {
-		return failf("predicate.checks.edr.agents", "must be empty when state is %v", e["state"])
+		return failf("predicate.protection.edr.agents", "must be empty when state is %v", e["state"])
 	}
 	return nil
 }

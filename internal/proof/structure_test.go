@@ -80,14 +80,14 @@ func isUntyped(e ast.Expr) bool {
 // builderInputs are the structs BuildSensorHealth reads (time.Time is a
 // timestamp and is allowed).
 var builderInputs = map[string]bool{
-	"Header": true, "Readings": true, "SecurityCenter": true, "Defender": true,
-	"EDR": true, "EDRAgent": true, "Version": true,
+	"Header": true, "SensorHealth": true, "Readings": true, "SecurityCenter": true,
+	"Defender": true, "EDR": true, "EDRAgent": true, "Version": true,
 }
 
 // vocabularyTypes must be small unsigned integers, never strings.
 var vocabularyTypes = map[string]bool{
 	"Availability": true, "Toggle": true, "BlocklistState": true, "VolumeProtection": true,
-	"RunningMode": true, "Vendor": true, "KeyProtection": true, "NonceSource": true,
+	"RunningMode": true, "Vendor": true, "KeyProtection": true,
 }
 
 func TestBuilderAcceptsOnlyTypedValues(t *testing.T) {

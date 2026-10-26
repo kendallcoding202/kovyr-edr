@@ -1,25 +1,33 @@
 package proof
 
-// The sensor_health statement: what the agent signs every heartbeat.
+// The heartbeat statement: what the agent signs every interval.
 //
-// Privacy rule (CLAUDE.md section 3): a statement carries only booleans,
-// integers, enums and timestamps, plus fixed-format protocol values (the
-// key-derived device ID, hex digests, the nonce and the salt). This file
-// cannot see anything else: BuildSensorHealth takes only the typed values
-// below (no string, byte slice, map or interface fields, enforced by
-// structure_test.go), and this package imports nothing that reads files,
-// the network or OS state.
+// Privacy rule (CLAUDE.md section 3, SPEC section 6.1): a statement
+// carries only booleans, integers, enums and timestamps, plus fixed-format
+// protocol values (the key-derived device ID, hex digests, the nonce and
+// the salt). This file cannot see anything else: BuildStatement takes only
+// the typed values below (no string, byte slice, map or interface fields,
+// enforced by structure_test.go), and this package imports nothing that
+// reads files, the network or OS state.
 //
-// Format (proof spec, as implemented by proof-of-protection/engine):
-// in-toto Statement v1, one subject (the device ID, with the key's keyid
-// as its sha256 digest), canonical JSON, DSSE envelope, ES256 signature.
-// The chain rule is the engine's: prev is the SHA-256 of the previous
-// statement's exact payload bytes.
+// Format (SPEC.md, proof-of-protection/engine): in-toto Statement v1 with
+// one subject (the device ID, its key ID as the sha256 digest), canonical
+// JSON, DSSE envelope, ES256 P1363 low-S signature. The predicate type is
+// .../endpoint/v1, which SPEC section 6.4 names for endpoint-agent
+// sections. Its fields:
 //
-// TODO(spec): the proof spec (SPEC.md) does not define a sensor_health
-// predicate yet. This one follows the engine's posture/v1 header fields
-// (attester, attester_kind, seq, prev, nonce, salt, observed_at) and must
-// be added to the spec before halden accepts it.
+//   - the posture/v1 common fields of SPEC 6.2 with the same names and
+//     formats: attester, attester_kind, seq, prev, nonce, salt,
+//     observed_at. prev is SHA-256 of the previous payload (SPEC 8);
+//   - sensor_health, exactly the section SPEC 6.4 defines;
+//   - protection and agent_version, which SPEC does not define yet.
+//
+// TODO(spec): SPEC 6.4 is "schema only, not implemented" and today's
+// verifiers do not accept endpoint/v1. Before halden ingests these, SPEC
+// must add the protection section and agent_version (proposed schema in
+// docs/api.md), and v0 deviations must close: no tenant field (needs
+// enrollment) and seq 1 links to GenesisPrev instead of the enrollment
+// payload.
 
 import (
 	"crypto/sha256"
@@ -33,9 +41,9 @@ import (
 // InTotoStatementType is the in-toto Statement v1 type URI.
 const InTotoStatementType = "https://in-toto.io/Statement/v1"
 
-// PredicateSensorHealth is the predicate type of a heartbeat statement.
-// "v0" marks it as a draft until the proof spec defines it.
-const PredicateSensorHealth = "https://kovyr.com/attestation/sensor_health/v0"
+// PredicateEndpoint is the predicate type of a heartbeat statement (SPEC
+// section 6.4: "a new predicate type .../endpoint/v1").
+const PredicateEndpoint = "https://kovyr.com/attestation/endpoint/v1"
 
 // DevicePrefix starts every device ID.
 const DevicePrefix = "dev_"
@@ -43,16 +51,18 @@ const DevicePrefix = "dev_"
 // TimeLayout is the only timestamp format in signed data: UTC, seconds.
 const TimeLayout = "2006-01-02T15:04:05Z"
 
-// Heartbeat interval bounds, in seconds (1 to 60 minutes).
+// Heartbeat interval bounds, in seconds (1 to 60 minutes; SPEC allows
+// 30 to 3600 for heartbeat_interval_s).
 const (
 	MinIntervalS = 60
 	MaxIntervalS = 3600
 )
 
-// Range caps for counts.
+// Range caps.
 const (
 	MaxAVProducts       = 32
 	MaxSignatureAgeDays = 65535
+	MaxVersion          = 1<<53 - 1 // SPEC 6.4 version fields: 0..9007199254740991
 )
 
 // Digest, Nonce and Salt are fixed-size protocol values.
@@ -62,8 +72,9 @@ type (
 	Salt   [32]byte
 )
 
-// GenesisPrev is prev for seq 1. The spec links seq 1 to the device's
-// enrollment record; enrollment is a stub in v0, so v0 uses all zeros.
+// GenesisPrev is prev for seq 1. SPEC section 8 links report 1 to the
+// attester's enrollment payload; enrollment is a stub in v0, so v0 uses
+// all zeros. TODO(enrollment): use the enrollment payload digest.
 var GenesisPrev Digest
 
 // PayloadDigest is the chain hash: SHA-256 of a statement's exact payload
@@ -75,16 +86,24 @@ type Version struct {
 	Major, Minor, Patch uint16
 }
 
-// Header holds the protocol fields of a statement.
+// Header holds the protocol fields of a statement. Nonce is the server's
+// one-time challenge (SPEC section 8); there is no other kind.
 type Header struct {
-	Seq                uint32
-	Prev               Digest
-	Nonce              Nonce
-	NonceSource        NonceSource
-	Salt               Salt
-	ObservedAt         time.Time
-	AgentVersion       Version
-	HeartbeatIntervalS uint16
+	Seq          uint32
+	Prev         Digest
+	Nonce        Nonce
+	Salt         Salt
+	ObservedAt   time.Time
+	AgentVersion Version
+}
+
+// SensorHealth is the SPEC section 6.4 sensor_health section: the health
+// of the Kovyr sensor itself (not of the antivirus; that is Readings).
+type SensorHealth struct {
+	SensorRunning          bool
+	TamperDetected         bool
+	DriverBlocklistVersion uint64 // 0..MaxVersion; 0 = not read
+	PolicyVersion          uint64 // 0..MaxVersion; 0 = no policy
 }
 
 // Readings are the results of the protection checks. Use UnknownReadings
@@ -150,11 +169,11 @@ func UnknownDefender(state Availability) Defender {
 	return Defender{State: state, SignatureAgeDays: UnknownCount}
 }
 
-// BuildSensorHealth returns the canonical payload of a sensor_health
-// statement. The device ID and subject are derived from key, so they
-// cannot be mistyped. The result is checked against the same schema the
-// receiver uses before it is returned.
-func BuildSensorHealth(key *PublicKey, protection KeyProtection, h Header, r Readings) ([]byte, error) {
+// BuildStatement returns the canonical payload of a heartbeat statement.
+// The device ID and subject are derived from key, so they cannot be
+// mistyped. The result is checked against the same schema the receiver
+// uses before it is returned.
+func BuildStatement(key *PublicKey, h Header, sh SensorHealth, r Readings) ([]byte, error) {
 	if key == nil {
 		return nil, errors.New("statement needs the device public key")
 	}
@@ -168,7 +187,10 @@ func BuildSensorHealth(key *PublicKey, protection KeyProtection, h Header, r Rea
 		return nil, errors.New("statement needs a random salt (see NewSalt)")
 	}
 	if h.Nonce == (Nonce{}) {
-		return nil, errors.New("statement needs a nonce")
+		return nil, errors.New("statement needs the server nonce")
+	}
+	if sh.DriverBlocklistVersion > MaxVersion || sh.PolicyVersion > MaxVersion {
+		return nil, errors.New("builder refused statement: version outside 0..2^53-1")
 	}
 	var e enc
 	agents := append([]EDRAgent(nil), r.EDR.Agents...)
@@ -183,7 +205,7 @@ func BuildSensorHealth(key *PublicKey, protection KeyProtection, h Header, r Rea
 		})
 	}
 	sc, d := r.SecurityCenter, r.Defender
-	checks := map[string]any{
+	protection := map[string]any{
 		"security_center": map[string]any{
 			"state":      e.name(availabilityNames, uint8(sc.State)),
 			"products":   int64(sc.Products),
@@ -215,7 +237,6 @@ func BuildSensorHealth(key *PublicKey, protection KeyProtection, h Header, r Rea
 		"seq":           int64(h.Seq),
 		"prev":          hex.EncodeToString(h.Prev[:]),
 		"nonce":         hex.EncodeToString(h.Nonce[:]),
-		"nonce_source":  e.name(nonceSourceNames, uint8(h.NonceSource)),
 		"salt":          hex.EncodeToString(h.Salt[:]),
 		"observed_at":   h.ObservedAt.UTC().Format(TimeLayout),
 		"agent_version": map[string]any{
@@ -223,16 +244,20 @@ func BuildSensorHealth(key *PublicKey, protection KeyProtection, h Header, r Rea
 			"minor": int64(h.AgentVersion.Minor),
 			"patch": int64(h.AgentVersion.Patch),
 		},
-		"key_protection":       e.name(keyProtectionNames, uint8(protection)),
-		"heartbeat_interval_s": int64(h.HeartbeatIntervalS),
-		"checks":               checks,
+		"sensor_health": map[string]any{
+			"sensor_running":           sh.SensorRunning,
+			"tamper_detected":          sh.TamperDetected,
+			"driver_blocklist_version": int64(sh.DriverBlocklistVersion),
+			"policy_version":           int64(sh.PolicyVersion),
+		},
+		"protection": protection,
 	}
 	if e.err != nil {
 		return nil, fmt.Errorf("builder refused statement: %w", e.err)
 	}
 	st := map[string]any{
 		"_type":         InTotoStatementType,
-		"predicateType": PredicateSensorHealth,
+		"predicateType": PredicateEndpoint,
 		"subject": []any{map[string]any{
 			"name":   key.DeviceID(),
 			"digest": map[string]any{"sha256": key.KeyID()},
@@ -256,26 +281,24 @@ func (e *enc) name(table []string, v uint8) string {
 	return n
 }
 
-// Statement is a validated sensor_health statement, decoded back into the
+// Statement is a validated heartbeat statement, decoded back into the
 // typed vocabulary.
 type Statement struct {
-	DeviceID           string
-	KeyID              string
-	Seq                uint32
-	Prev               Digest
-	Nonce              Nonce
-	NonceSource        NonceSource
-	Salt               Salt
-	ObservedAt         time.Time
-	AgentVersion       Version
-	KeyProtection      KeyProtection
-	HeartbeatIntervalS uint16
-	Readings           Readings
+	DeviceID     string
+	KeyID        string
+	Seq          uint32
+	Prev         Digest
+	Nonce        Nonce
+	Salt         Salt
+	ObservedAt   time.Time
+	AgentVersion Version
+	SensorHealth SensorHealth
+	Readings     Readings
 }
 
-// ValidateSensorHealth checks that payload is a canonical sensor_health
+// ValidateStatement checks that payload is a canonical heartbeat
 // statement that obeys the schema, and decodes it.
-func ValidateSensorHealth(payload []byte) (*Statement, error) {
+func ValidateStatement(payload []byte) (*Statement, error) {
 	obj, err := ParseCanonicalObject(payload)
 	if err != nil {
 		return nil, err
@@ -291,7 +314,8 @@ func ValidateSensorHealth(payload []byte) (*Statement, error) {
 func decodeStatement(obj map[string]any) *Statement {
 	p := obj["predicate"].(map[string]any)
 	subj := obj["subject"].([]any)[0].(map[string]any)
-	c := p["checks"].(map[string]any)
+	c := p["protection"].(map[string]any)
+	sh := p["sensor_health"].(map[string]any)
 	sc := c["security_center"].(map[string]any)
 	d := c["defender"].(map[string]any)
 	e := c["edr"].(map[string]any)
@@ -299,15 +323,18 @@ func decodeStatement(obj map[string]any) *Statement {
 	at, _ := time.Parse(TimeLayout, p["observed_at"].(string))
 	ev := func(table []string, v any) uint8 { n, _ := enumValue(table, v.(string)); return n }
 	st := &Statement{
-		DeviceID:           p["attester"].(string),
-		KeyID:              subj["digest"].(map[string]any)["sha256"].(string),
-		Seq:                uint32(p["seq"].(int64)),
-		NonceSource:        NonceSource(ev(nonceSourceNames, p["nonce_source"])),
-		ObservedAt:         at,
-		KeyProtection:      KeyProtection(ev(keyProtectionNames, p["key_protection"])),
-		HeartbeatIntervalS: uint16(p["heartbeat_interval_s"].(int64)),
+		DeviceID:   p["attester"].(string),
+		KeyID:      subj["digest"].(map[string]any)["sha256"].(string),
+		Seq:        uint32(p["seq"].(int64)),
+		ObservedAt: at,
 		AgentVersion: Version{
 			Major: uint16(av["major"].(int64)), Minor: uint16(av["minor"].(int64)), Patch: uint16(av["patch"].(int64)),
+		},
+		SensorHealth: SensorHealth{
+			SensorRunning:          sh["sensor_running"].(bool),
+			TamperDetected:         sh["tamper_detected"].(bool),
+			DriverBlocklistVersion: uint64(sh["driver_blocklist_version"].(int64)),
+			PolicyVersion:          uint64(sh["policy_version"].(int64)),
 		},
 		Readings: Readings{
 			SecurityCenter: SecurityCenter{

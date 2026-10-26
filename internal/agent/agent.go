@@ -1,6 +1,13 @@
 // Package agent is the heartbeat loop: every interval it fetches a
-// challenge, runs the checks, signs a sensor_health statement, queues it
-// on disk and sends the queue oldest first.
+// challenge, runs the checks, signs a statement, queues it on disk and
+// sends the queue oldest first.
+//
+// SPEC section 8: every report carries a one-time server nonce issued for
+// this device, and ingest refuses nonces older than 10 minutes and
+// statements more than 5 minutes from the server's clock. So the agent
+// signs only right after a challenge; with no challenge (offline) it makes
+// no statement and the receiver sees a gap ("silence is a signal"). The
+// queue bridges short upload failures, not long offline periods.
 //
 // The agent only reports. It never accepts commands: the server can hand
 // it a nonce and a status code, nothing else (see Transport).
@@ -19,6 +26,19 @@ import (
 
 // Version is this agent's version, reported in every statement.
 var Version = proof.Version{Major: 0, Minor: 1, Patch: 0}
+
+// ErrNoChallenge means no server nonce could be had, so no statement was
+// made this time.
+var ErrNoChallenge = errors.New("no server challenge")
+
+// SensorHealth is the SPEC 6.4 sensor_health section for v0. The agent
+// is running (it is making this report). v0 has no self-tamper checks yet
+// (the tripwire is a later ticket), so tamper_detected is false meaning
+// "none detected", not "checked and clean"; it does not read the
+// blocklist version (0) and has no policy (0).
+func SensorHealth() proof.SensorHealth {
+	return proof.SensorHealth{SensorRunning: true}
+}
 
 // DefaultInterval is the heartbeat interval.
 const DefaultInterval = 15 * time.Minute
@@ -112,7 +132,7 @@ func (a *Agent) reconcile() error {
 	if err != nil {
 		return fmt.Errorf("queued envelope %d: %w", seq, err)
 	}
-	st, err := proof.ValidateSensorHealth(e.Payload)
+	st, err := proof.ValidateStatement(e.Payload)
 	if err != nil || st.Seq != seq || st.KeyID != a.signer.Public().KeyID() {
 		return fmt.Errorf("queued envelope %d does not belong to this chain", seq)
 	}
@@ -131,9 +151,13 @@ func (a *Agent) QueueLen() int { return a.queue.Len() }
 
 // Beat makes one statement and queues it. It does not send.
 func (a *Agent) Beat(ctx context.Context) (*proof.Statement, error) {
-	nonce, source, err := a.nonce(ctx)
+	cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	nonce, err := a.transport.Challenge(cctx, a.signer.Public().DeviceID())
+	cancel()
 	if err != nil {
-		return nil, err
+		// No nonce, no statement: a seq is never spent on a report the
+		// server would refuse.
+		return nil, fmt.Errorf("%w: %v", ErrNoChallenge, err)
 	}
 	readings, reports := a.checker.Run()
 	for _, r := range reports {
@@ -141,7 +165,7 @@ func (a *Agent) Beat(ctx context.Context) (*proof.Statement, error) {
 			a.cfg.Logf("check %s: %s", r.Name, r.Outcome)
 		}
 	}
-	env, st, err := a.seal(nonce, source, readings)
+	env, st, err := a.seal(nonce, readings)
 	if err != nil {
 		return nil, err
 	}
@@ -160,23 +184,8 @@ func (a *Agent) Beat(ctx context.Context) (*proof.Statement, error) {
 	return st, nil
 }
 
-// nonce fetches a server challenge. Offline (or on any unusable answer)
-// it falls back to a random agent nonce, marked as such, so the offline
-// period is still recorded and chained.
-func (a *Agent) nonce(ctx context.Context) (proof.Nonce, proof.NonceSource, error) {
-	cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	n, err := a.transport.Challenge(cctx)
-	if err == nil {
-		return n, proof.NonceServer, nil
-	}
-	a.cfg.Logf("challenge unavailable (%v); using an agent nonce", err)
-	n, err = proof.NewAgentNonce()
-	return n, proof.NonceAgent, err
-}
-
 // seal builds and signs the next statement in the chain.
-func (a *Agent) seal(nonce proof.Nonce, source proof.NonceSource, r proof.Readings) (*proof.Envelope, *proof.Statement, error) {
+func (a *Agent) seal(nonce proof.Nonce, r proof.Readings) (*proof.Envelope, *proof.Statement, error) {
 	if a.state.Seq == 1<<31-1 {
 		return nil, nil, errors.New("sequence exhausted; re-enroll the device")
 	}
@@ -189,11 +198,10 @@ func (a *Agent) seal(nonce proof.Nonce, source proof.NonceSource, r proof.Readin
 		return nil, nil, err
 	}
 	h := proof.Header{
-		Seq: a.state.Seq + 1, Prev: prev, Nonce: nonce, NonceSource: source, Salt: salt,
+		Seq: a.state.Seq + 1, Prev: prev, Nonce: nonce, Salt: salt,
 		ObservedAt: a.cfg.Clock.Now(), AgentVersion: Version,
-		HeartbeatIntervalS: uint16(a.cfg.Interval / time.Second),
 	}
-	payload, err := proof.BuildSensorHealth(a.signer.Public(), a.signer.Protection(), h, r)
+	payload, err := proof.BuildStatement(a.signer.Public(), h, SensorHealth(), r)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -204,7 +212,7 @@ func (a *Agent) seal(nonce proof.Nonce, source proof.NonceSource, r proof.Readin
 	if err := env.Verify(a.signer.Public()); err != nil {
 		return nil, nil, fmt.Errorf("own signature does not verify: %w", err)
 	}
-	st, err := proof.ValidateSensorHealth(payload)
+	st, err := proof.ValidateStatement(payload)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -244,14 +252,22 @@ func (a *Agent) Run(ctx context.Context) error {
 	clk := a.cfg.Clock
 	nextBeat := clk.Now()
 	var retryAt time.Time
-	failures := 0
+	failures, beatFailures := 0, 0
 	for {
 		now := clk.Now()
 		if !now.Before(nextBeat) {
 			if _, err := a.Beat(ctx); err != nil {
-				a.cfg.Logf("heartbeat not made: %v", err)
+				// Typically offline. Try again soon (with backoff, never
+				// later than one interval) so a short outage costs a late
+				// report, not a missed one.
+				beatFailures++
+				d := a.cfg.Backoff.Delay(beatFailures)
+				a.cfg.Logf("heartbeat not made (%v); next try in %v", err, d.Round(time.Second))
+				nextBeat = now.Add(d)
+			} else {
+				beatFailures = 0
+				nextBeat = now.Add(a.cfg.Interval)
 			}
-			nextBeat = now.Add(a.cfg.Interval)
 			retryAt = now
 		}
 		if !retryAt.IsZero() && !now.Before(retryAt) {

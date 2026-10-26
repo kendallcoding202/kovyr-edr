@@ -121,9 +121,9 @@ func TestRunnerErrorsAreUnknownNotFatal(t *testing.T) {
 	// And the all-unknown result still builds a valid statement.
 	k, _ := proof.GenerateSoftwareKey()
 	s, _ := proof.NewSoftwareSigner(k)
-	h := proof.Header{Seq: 1, NonceSource: proof.NonceAgent, ObservedAt: time.Now(), HeartbeatIntervalS: 900}
+	h := proof.Header{Seq: 1, ObservedAt: time.Now()}
 	h.Nonce[0], h.Salt[0] = 1, 1
-	if _, err := proof.BuildSensorHealth(s.Public(), s.Protection(), h, got); err != nil {
+	if _, err := proof.BuildStatement(s.Public(), h, proof.SensorHealth{SensorRunning: true}, got); err != nil {
 		t.Fatalf("unknown readings do not build: %v", err)
 	}
 }
@@ -137,9 +137,9 @@ func TestSystemProbesNeverFailTheRun(t *testing.T) {
 	}
 	k, _ := proof.GenerateSoftwareKey()
 	s, _ := proof.NewSoftwareSigner(k)
-	h := proof.Header{Seq: 1, NonceSource: proof.NonceAgent, ObservedAt: time.Now(), HeartbeatIntervalS: 900}
+	h := proof.Header{Seq: 1, ObservedAt: time.Now()}
 	h.Nonce[0], h.Salt[0] = 1, 1
-	if _, err := proof.BuildSensorHealth(s.Public(), s.Protection(), h, got); err != nil {
+	if _, err := proof.BuildStatement(s.Public(), h, proof.SensorHealth{SensorRunning: true}, got); err != nil {
 		t.Fatalf("system readings do not build: %v (%+v)", err, got)
 	}
 }

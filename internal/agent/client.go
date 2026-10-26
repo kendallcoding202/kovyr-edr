@@ -22,7 +22,8 @@ import (
 // operations and neither returns anything the agent could act on: a nonce,
 // and whether an envelope was delivered.
 type Transport interface {
-	Challenge(ctx context.Context) (proof.Nonce, error)
+	// Challenge asks for a nonce issued for this device (SPEC section 8).
+	Challenge(ctx context.Context, deviceID string) (proof.Nonce, error)
 	PostHeartbeat(ctx context.Context, envelope []byte) error
 }
 
@@ -88,6 +89,14 @@ func NewHTTPClient(server string, devInsecure bool) (*HTTPClient, error) {
 	return &HTTPClient{base: u, hc: hc}, nil
 }
 
+func validDeviceID(s string) bool {
+	if len(s) != len(proof.DevicePrefix)+16 || !strings.HasPrefix(s, proof.DevicePrefix) {
+		return false
+	}
+	_, err := hex.DecodeString(s[len(proof.DevicePrefix):])
+	return err == nil && strings.ToLower(s) == s
+}
+
 func isLoopback(host string) bool {
 	if strings.EqualFold(host, "localhost") {
 		return true
@@ -102,13 +111,18 @@ func (c *HTTPClient) endpoint(p string) string {
 	return u.String()
 }
 
-// Challenge fetches a one-time nonce. The response must be exactly
+// Challenge fetches a one-time nonce issued for deviceID. The response
+// must be exactly
 // {"nonce":"<32 lowercase hex>"} in canonical JSON (one trailing newline
 // allowed). Anything else, including any extra field, is rejected: the
 // server cannot send the agent instructions.
-func (c *HTTPClient) Challenge(ctx context.Context) (proof.Nonce, error) {
+func (c *HTTPClient) Challenge(ctx context.Context, deviceID string) (proof.Nonce, error) {
 	var n proof.Nonce
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.endpoint("/v0/challenge"), nil)
+	if !validDeviceID(deviceID) {
+		return n, errors.New("challenge: bad device ID")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		c.endpoint("/v0/challenge")+"?"+url.Values{"device": {deviceID}}.Encode(), nil)
 	if err != nil {
 		return n, err
 	}

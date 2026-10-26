@@ -86,12 +86,14 @@ func TestParseChallengeRejectsAnythingButANonce(t *testing.T) {
 	}
 }
 
+const testDevice = "dev_0123456789abcdef"
+
 func TestChallengeOverHTTP(t *testing.T) {
 	var ctype, body atomic.Value
 	ctype.Store("application/json")
 	body.Store(`{"nonce":"00112233445566778899aabbccddeeff"}` + "\n")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v0/challenge" || r.Method != http.MethodGet {
+		if r.URL.Path != "/v0/challenge" || r.Method != http.MethodGet || r.URL.Query().Get("device") != testDevice {
 			http.NotFound(w, r)
 			return
 		}
@@ -103,17 +105,22 @@ func TestChallengeOverHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n, err := c.Challenge(context.Background())
+	n, err := c.Challenge(context.Background(), testDevice)
 	if err != nil || fmt.Sprintf("%x", n[:]) != "00112233445566778899aabbccddeeff" {
 		t.Fatalf("challenge %x, %v", n, err)
 	}
+	for _, bad := range []string{"", "dev_0123", "DEV_0123456789ABCDEF", "dev_0123456789abcdeg", "dev_0123456789abcdef&x=1"} {
+		if _, err := c.Challenge(context.Background(), bad); err == nil {
+			t.Errorf("challenge sent for device ID %q", bad)
+		}
+	}
 	ctype.Store("text/html")
-	if _, err := c.Challenge(context.Background()); err == nil {
+	if _, err := c.Challenge(context.Background(), testDevice); err == nil {
 		t.Error("accepted a non-JSON content type")
 	}
 	ctype.Store("application/json")
 	body.Store(`{"exec":"calc.exe","nonce":"00112233445566778899aabbccddeeff"}`)
-	if _, err := c.Challenge(context.Background()); !errors.Is(err, ErrNotANonce) {
+	if _, err := c.Challenge(context.Background(), testDevice); !errors.Is(err, ErrNotANonce) {
 		t.Errorf("accepted a challenge with a command: %v", err)
 	}
 }
@@ -152,7 +159,7 @@ func TestRedirectsAreNotFollowed(t *testing.T) {
 	}))
 	defer srv.Close()
 	c, _ := NewHTTPClient(srv.URL, true)
-	if _, err := c.Challenge(context.Background()); err == nil {
+	if _, err := c.Challenge(context.Background(), testDevice); err == nil {
 		t.Error("challenge followed a redirect")
 	}
 	if err := c.PostHeartbeat(context.Background(), []byte(`{}`)); err == nil {
@@ -198,11 +205,11 @@ func TestHTTPSWorks(t *testing.T) {
 		t.Fatal(err)
 	}
 	// An untrusted certificate must fail: no InsecureSkipVerify anywhere.
-	if _, err := c.Challenge(context.Background()); err == nil {
+	if _, err := c.Challenge(context.Background(), testDevice); err == nil {
 		t.Fatal("accepted an untrusted TLS certificate")
 	}
 	c.hc.Transport.(*http.Transport).TLSClientConfig.RootCAs = srv.Client().Transport.(*http.Transport).TLSClientConfig.RootCAs
-	if _, err := c.Challenge(context.Background()); err != nil {
+	if _, err := c.Challenge(context.Background(), testDevice); err != nil {
 		t.Fatalf("trusted TLS: %v", err)
 	}
 }

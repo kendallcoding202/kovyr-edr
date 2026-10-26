@@ -108,8 +108,10 @@ var vendorNames = []string{
 // MaxEDRAgents caps the EDR list; there is one entry per vendor.
 const MaxEDRAgents = int(vendorCount) - 1
 
-// KeyProtection is where the device private key lives: the evidence
-// strength of the statement's signature.
+// KeyProtection is where the device private key lives: its evidence
+// strength. Per SPEC section 6.3 it belongs in the attester enrollment
+// record (key_protection), not in each statement; enroll --print-pubkey
+// reports it.
 type KeyProtection uint8
 
 const (
@@ -119,22 +121,6 @@ const (
 )
 
 var keyProtectionNames = []string{"", "software", "tpm2"}
-
-// NonceSource says where the statement's nonce came from.
-type NonceSource uint8
-
-const (
-	nonceSourceInvalid NonceSource = iota
-	// NonceServer: a one-time challenge from GET /v0/challenge. The
-	// statement was made after the server issued it.
-	NonceServer
-	// NonceAgent: the challenge could not be fetched (offline), so the
-	// agent used a random nonce. Freshness then rests on the hash chain:
-	// the statement sits between the challenged statements around it.
-	NonceAgent
-)
-
-var nonceSourceNames = []string{"", "server", "agent"}
 
 // attesterKindNames has one value: this agent is a device agent.
 var attesterKindNames = []string{"device_agent"}
@@ -163,7 +149,6 @@ func (v VolumeProtection) String() string { return nameOr(volumeNames, uint8(v))
 func (v RunningMode) String() string      { return nameOr(runningModeNames, uint8(v)) }
 func (v Vendor) String() string           { return nameOr(vendorNames, uint8(v)) }
 func (v KeyProtection) String() string    { return nameOr(keyProtectionNames, uint8(v)) }
-func (v NonceSource) String() string      { return nameOr(nonceSourceNames, uint8(v)) }
 
 func nameOr(table []string, v uint8) string {
 	if n, err := enumName(table, v); err == nil {

@@ -334,6 +334,15 @@ func ValidateValue(obj map[string]any) (*Statement, error) {
 		if !strings.HasPrefix(st.Str("attester"), prefixForKind(st.Str("attester_kind"))) {
 			return nil, fail("predicate.attester", "prefix does not match attester_kind")
 		}
+	case EndpointPredicateType():
+		// No enrollment binds the key yet (SPEC 6.5), so the device ID
+		// must be derived from the signing key named in the subject.
+		if st.SubjectName != st.Str("attester") {
+			return nil, fail("subject[0].name", "must equal predicate.attester")
+		}
+		if st.Str("attester") != PrefixDevice+st.SubjectDigest[:16] {
+			return nil, fail("predicate.attester", "must be derived from the key in subject[0].digest")
+		}
 	case EnrollmentPredicateType():
 		want := st.Str("tenant")
 		if st.Str("kind") == "attester" {
@@ -396,7 +405,12 @@ func (s *Statement) get(path string) any {
 // IsPosture reports whether this is a posture statement.
 func (s *Statement) IsPosture() bool { return s.PredicateType == PosturePredicateType() }
 
+// IsEndpoint reports whether this is an endpoint agent's heartbeat
+// (SPEC 6.5).
+func (s *Statement) IsEndpoint() bool { return s.PredicateType == EndpointPredicateType() }
+
 // PosturePredicateType and EnrollmentPredicateType expose the brand
 // constants under stable names.
 func PosturePredicateType() string    { return brandPosture }
 func EnrollmentPredicateType() string { return brandEnrollment }
+func EndpointPredicateType() string   { return brandEndpoint }

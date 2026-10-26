@@ -360,25 +360,92 @@ func statementVectors() (any, error) {
 		return nil, fmt.Errorf("scan with a domain accepted")
 	}
 	rejects = append(rejects, map[string]any{"name": "domain name in a scan statement", "payload": string(badScan)})
+	epDev := signer(P256Key("stmt-endpoint-device"))
+	epPayload, err := endpointPayload(epDev, at)
+	if err != nil {
+		return nil, err
+	}
+	epEnv, err := posture.Sign(epPayload, epDev)
+	if err != nil {
+		return nil, err
+	}
+	for _, c := range []struct{ name, from, to string }{
+		{"host name in an endpoint statement", `"memory_integrity":"off"`, `"hostname":"MARIA-LAPTOP","memory_integrity":"off"`},
+		{"EDR service name", `{"running":true,"vendor":"crowdstrike"}`, `{"running":true,"service":"CSFalconService","vendor":"crowdstrike"}`},
+		{"counts from a check that did not run", `"security_center":{"enabled":1,"products":1,"state":"ok"`, `"security_center":{"enabled":1,"products":1,"state":"unknown"`},
+		{"tenant before endpoint enrollment", `"seq":12`, `"seq":12,"tenant":"tnt_0000000000000000"`},
+		{"EDR agents as a bare array", `"agents":{"items":[{"running":true,"vendor":"crowdstrike"},{"running":false,"vendor":"huntress"}],"total":2,"truncated":false}`, `"agents":[{"running":true,"vendor":"crowdstrike"},{"running":false,"vendor":"huntress"}]`},
+	} {
+		bad := bytes.Replace(epPayload, []byte(c.from), []byte(c.to), 1)
+		if bytes.Equal(bad, epPayload) {
+			return nil, fmt.Errorf("replacement %q did not apply", c.name)
+		}
+		if _, err := posture.Validate(bad); err == nil {
+			return nil, fmt.Errorf("%s accepted", c.name)
+		}
+		rejects = append(rejects, map[string]any{"name": c.name, "payload": string(bad)})
+	}
 	return map[string]any{
-		"scan_payload_canonical":  string(scanPayload),
-		"scan_envelope_canonical": string(scanEnv.Canonical()),
-		"scanner_key":             keyVector(Ed25519Key("stmt-scanner")),
-		"predicate_type":          brand.PredicatePosture,
-		"tenant_key":              keyVector(P256Key("stmt-tenant")),
-		"device_key":              keyVector(P256Key("stmt-device")),
-		"payload_canonical":       string(payload),
-		"payload_sha256_hex":      hexs(chain[:]),
-		"envelope_canonical":      string(env.Canonical()),
-		"entry_digest_hex":        hexs(digest[:]),
-		"leaf_hash_hex":           hexs(leaf[:]),
-		"timestamp_token":         tok,
-		"tsa_key":                 keyVector(Ed25519Key("stmt-tsa")),
-		"tsa_signed_message":      string(tstMsg),
-		"must_reject_payloads":    rejects,
+		"endpoint_payload_canonical":  string(epPayload),
+		"endpoint_envelope_canonical": string(epEnv.Canonical()),
+		"endpoint_device_key":         keyVector(P256Key("stmt-endpoint-device")),
+		"scan_payload_canonical":      string(scanPayload),
+		"scan_envelope_canonical":     string(scanEnv.Canonical()),
+		"scanner_key":                 keyVector(Ed25519Key("stmt-scanner")),
+		"predicate_type":              brand.PredicatePosture,
+		"tenant_key":                  keyVector(P256Key("stmt-tenant")),
+		"device_key":                  keyVector(P256Key("stmt-device")),
+		"payload_canonical":           string(payload),
+		"payload_sha256_hex":          hexs(chain[:]),
+		"envelope_canonical":          string(env.Canonical()),
+		"entry_digest_hex":            hexs(digest[:]),
+		"leaf_hash_hex":               hexs(leaf[:]),
+		"timestamp_token":             tok,
+		"tsa_key":                     keyVector(Ed25519Key("stmt-tsa")),
+		"tsa_signed_message":          string(tstMsg),
+		"must_reject_payloads":        rejects,
 		"notes": "payload_sha256 is the chain hash the next statement puts in prev. entry_digest = SHA-256(envelope_canonical) is what the public log stores " +
 			"and what timestamp authorities sign; leaf_hash = SHA-256(0x00||entry_digest).",
 	}, nil
+}
+
+// endpointPayload is an endpoint/v1 heartbeat (SPEC 6.5): Defender
+// passive behind a third-party EDR, one EDR agent stopped. It is written
+// out as data, the way any implementation would encode it, and checked
+// against the schema.
+func endpointPayload(dev sigs.Signer, at time.Time) ([]byte, error) {
+	id := posture.AttesterID(posture.DeviceAgent, dev.Public())
+	st := map[string]any{
+		"_type":         posture.InTotoStatementType,
+		"predicateType": brand.PredicateEndpoint,
+		"subject":       []any{map[string]any{"name": id, "digest": map[string]any{"sha256": dev.Public().KeyID()}}},
+		"predicate": map[string]any{
+			"attester": id, "attester_kind": "device_agent", "seq": int64(12),
+			"prev": hexs(seed("prev")), "nonce": hexs(seed("nonce")[:16]), "salt": hexs(seed("salt")),
+			"observed_at":   at.UTC().Format(tsa.TimeLayout),
+			"agent_version": map[string]any{"major": int64(0), "minor": int64(1), "patch": int64(0)},
+			"sensor_health": map[string]any{"sensor_running": true, "tamper_detected": false,
+				"driver_blocklist_version": int64(0), "policy_version": int64(0)},
+			"protection": map[string]any{
+				"security_center": map[string]any{"state": "ok", "products": int64(1), "enabled": int64(1), "up_to_date": int64(1)},
+				"defender": map[string]any{"state": "ok", "am_service": "on", "antivirus": "on", "real_time_protection": "off",
+					"behavior_monitor": "off", "tamper_protection": "on", "signature_age_days": int64(1), "running_mode": "passive"},
+				"edr": map[string]any{"state": "ok", "agents": map[string]any{
+					"items": []any{
+						map[string]any{"vendor": "crowdstrike", "running": true},
+						map[string]any{"vendor": "huntress", "running": false},
+					},
+					"total": int64(2), "truncated": false,
+				}},
+				"bitlocker_os_volume": "on", "firewall_profiles_on": int64(3),
+				"vulnerable_driver_blocklist": "default", "memory_integrity": "off",
+			},
+		},
+	}
+	if _, err := posture.ValidateValue(st); err != nil {
+		return nil, err
+	}
+	return canon.Encode(st)
 }
 
 // miniPack builds a two-device, three-day pack with one gap, plus a
@@ -547,7 +614,7 @@ so regenerating produces identical files. ` + "`go test ./...`" + ` fails if the
 | dsse.json | reproduce ` + "`pae_hex`" + `; verify each signature; reject each ` + "`must_reject`" + ` signature |
 | merkle.json | reproduce leaf hashes and roots; verify each inclusion and consistency proof |
 | note.json | verify the C2SP example; verify the checkpoint signature and the witness cosignature |
-| statement.json | validate ` + "`payload_canonical`" + `; reproduce the chain hash, entry digest and leaf hash; verify the timestamp token; reject each ` + "`must_reject_payloads`" + ` |
+| statement.json | validate ` + "`payload_canonical`" + `; reproduce the chain hash, entry digest and leaf hash; verify the timestamp token; validate and verify the scan and endpoint statements; reject each ` + "`must_reject_payloads`" + ` |
 | mini-pack.json + mini-trust-policy.json | verify: every step passes and the summary matches ` + "`mini-pack-expected.json`" + `; after the described tampering exactly the listed steps fail |
 | posture-schema.json | the statement schema as data (the same file the browser verifier embeds) |
 `

@@ -234,6 +234,19 @@ func TestStatementVectors(t *testing.T) {
 	if err != nil || senv.VerifySignature(0, spk) != nil {
 		t.Fatal("scan statement signature")
 	}
+	ep := []byte(str(v["endpoint_payload_canonical"]))
+	est, err := posture.Validate(ep)
+	if err != nil || !est.IsEndpoint() {
+		t.Fatalf("endpoint statement: %v", err)
+	}
+	eenv, err := dsse.Parse([]byte(str(v["endpoint_envelope_canonical"])))
+	epk, _ := sigs.ParsePublicKeyBase64(str(v["endpoint_device_key"].(map[string]any)["spki"]))
+	if err != nil || len(eenv.Signatures) != 1 || eenv.VerifySignature(0, epk) != nil || string(eenv.Payload) != string(ep) {
+		t.Fatal("endpoint statement signature")
+	}
+	if est.Str("attester") != posture.AttesterID(posture.DeviceAgent, epk) {
+		t.Fatal("endpoint attester is not derived from its key")
+	}
 	for _, r := range v["must_reject_payloads"].([]any) {
 		m := r.(map[string]any)
 		if _, err := posture.Validate([]byte(str(m["payload"]))); err == nil {

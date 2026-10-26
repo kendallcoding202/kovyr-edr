@@ -24,6 +24,10 @@ const (
 	// PredicateEnrollment is the in-toto predicateType of enrollment records.
 	PredicateEnrollment = AttestationBase + "enrollment/v1"
 
+	// PredicateEndpoint is the in-toto predicateType of the endpoint
+	// agent's heartbeat statements (SPEC section 6.5).
+	PredicateEndpoint = AttestationBase + "endpoint/v1"
+
 	// DemoLogOrigin is the C2SP checkpoint origin of the demo log.
 	DemoLogOrigin = "kovyr.com/proof/demo-log"
 )

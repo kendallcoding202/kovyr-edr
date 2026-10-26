@@ -19,6 +19,7 @@ import (
 const (
 	brandPosture    = brand.PredicatePosture
 	brandEnrollment = brand.PredicateEnrollment
+	brandEndpoint   = brand.PredicateEndpoint
 )
 
 // Typed enumerations. Values are checked against the schema at build time,

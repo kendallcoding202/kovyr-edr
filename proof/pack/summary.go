@@ -363,6 +363,8 @@ func (r *Report) itemLabel(it *item) string {
 	switch {
 	case it.st.IsPosture():
 		return fmt.Sprintf("%s report #%d (%s)", r.attesterName(it.st.Str("attester")), it.st.Int("seq"), it.st.Time("observed_at").Format("Jan 2"))
+	case it.st.IsEndpoint():
+		return fmt.Sprintf("%s heartbeat #%d (%s)", r.attesterName(it.st.Str("attester")), it.st.Int("seq"), it.st.Time("observed_at").Format("Jan 2"))
 	case it.kind() == "tenant_genesis":
 		return "The firm's enrollment record"
 	default:

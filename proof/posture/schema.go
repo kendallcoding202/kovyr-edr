@@ -204,6 +204,124 @@ func scanSpec() *Spec {
 	})
 }
 
+// Endpoint (SPEC 6.5) vocabularies. Every enum sorts its values.
+var (
+	availabilityVals = []string{"not_applicable", "ok", "unknown"}
+	toggleVals       = []string{"off", "on", "unknown"}
+	runningModeVals  = []string{"edr_block", "normal", "passive", "sxs_passive", "unknown"}
+	volumeVals       = []string{"not_applicable", "off", "on", "unknown"}
+	blocklistVals    = []string{"default", "off", "on", "unknown"}
+	// Known EDR and antivirus agents an endpoint agent may report. New
+	// vendors get new values; values are never reused.
+	edrVendorVals = []string{"bitdefender", "carbon_black", "cortex_xdr", "crowdstrike", "eset", "huntress",
+		"malwarebytes", "microsoft_defender_endpoint", "sentinelone", "sophos", "symantec", "trend_micro", "webroot"}
+)
+
+// Endpoint caps.
+const (
+	// EDRAgentsMaxItems caps protection.edr.agents (one record per vendor).
+	EDRAgentsMaxItems = 8
+	// MaxAVProducts caps the Security Center counts.
+	MaxAVProducts = 32
+	// MaxSignatureAgeDays caps Defender's signature age.
+	MaxSignatureAgeDays = 65535
+	// MaxVersionNumber caps the sensor_health version fields (2^53 - 1).
+	MaxVersionNumber = 1<<53 - 1
+	// unknownInt is the integer value for "unknown or not applicable".
+	unknownInt = -1
+)
+
+// SensorHealthSpec is the sensor_health section (SPEC 6.4): the health of
+// the endpoint agent itself.
+func SensorHealthSpec() *Spec {
+	return object(map[string]*Spec{
+		"sensor_running":           boolean(),
+		"tamper_detected":          boolean(),
+		"driver_blocklist_version": integer(0, MaxVersionNumber),
+		"policy_version":           integer(0, MaxVersionNumber),
+	})
+}
+
+// byState is an object whose other fields depend on its "state": ok
+// carries real values, and a check that did not run (unknown,
+// not_applicable) claims none.
+func byState(ok, notOK func() map[string]*Spec) *Spec {
+	s := object(map[string]*Spec{"state": enum(availabilityVals...)})
+	s.Switch = &Switch{On: "state", Cases: map[string]map[string]*Spec{
+		"ok": ok(), "unknown": notOK(), "not_applicable": notOK(),
+	}}
+	return s
+}
+
+func protectionSpec() *Spec {
+	sc := byState(func() map[string]*Spec {
+		return map[string]*Spec{
+			"products": integer(0, MaxAVProducts), "enabled": integer(0, MaxAVProducts), "up_to_date": integer(0, MaxAVProducts),
+		}
+	}, func() map[string]*Spec {
+		return map[string]*Spec{
+			"products": integer(unknownInt, unknownInt), "enabled": integer(unknownInt, unknownInt), "up_to_date": integer(unknownInt, unknownInt),
+		}
+	})
+	sc.LE = [][2]string{{"enabled", "products"}, {"up_to_date", "products"}}
+	toggles := []string{"am_service", "antivirus", "real_time_protection", "behavior_monitor", "tamper_protection"}
+	defender := byState(func() map[string]*Spec {
+		f := map[string]*Spec{
+			"signature_age_days": integer(unknownInt, MaxSignatureAgeDays),
+			"running_mode":       enum(runningModeVals...),
+		}
+		for _, k := range toggles {
+			f[k] = enum(toggleVals...)
+		}
+		return f
+	}, func() map[string]*Spec {
+		f := map[string]*Spec{
+			"signature_age_days": integer(unknownInt, unknownInt),
+			"running_mode":       enum("unknown"),
+		}
+		for _, k := range toggles {
+			f[k] = enum("unknown")
+		}
+		return f
+	})
+	edr := byState(func() map[string]*Spec {
+		return map[string]*Spec{"agents": resultList(EDRAgentsMaxItems, "vendor", object(map[string]*Spec{
+			"vendor":  enum(edrVendorVals...),
+			"running": boolean(),
+		}))}
+	}, func() map[string]*Spec { return map[string]*Spec{} })
+	return object(map[string]*Spec{
+		"security_center":             sc,
+		"defender":                    defender,
+		"edr":                         edr,
+		"bitlocker_os_volume":         enum(volumeVals...),
+		"firewall_profiles_on":        integer(unknownInt, 3),
+		"vulnerable_driver_blocklist": enum(blocklistVals...),
+		"memory_integrity":            enum(toggleVals...),
+	})
+}
+
+// EndpointPredicateSpec is the schema of an endpoint/v1 predicate (SPEC
+// 6.5): the posture common fields without tenant (it arrives with
+// endpoint enrollment), the agent's version, its own health and the
+// machine's protection checks.
+func EndpointPredicateSpec() *Spec {
+	return object(map[string]*Spec{
+		"attester":      id(PrefixDevice),
+		"attester_kind": enum("device_agent"),
+		"seq":           integer(1, 1<<31-1),
+		"prev":          hexN(64),
+		"nonce":         hexN(32),
+		"salt":          hexN(64),
+		"observed_at":   timestamp(),
+		"agent_version": object(map[string]*Spec{
+			"major": integer(0, 65535), "minor": integer(0, 65535), "patch": integer(0, 65535),
+		}),
+		"sensor_health": SensorHealthSpec(),
+		"protection":    protectionSpec(),
+	})
+}
+
 // PosturePredicateSpec is the schema of a posture/v1 predicate.
 func PosturePredicateSpec() *Spec {
 	s := object(map[string]*Spec{
@@ -277,6 +395,7 @@ func Schemas() map[string]*Spec {
 	return map[string]*Spec{
 		brand.PredicatePosture:    StatementSpec(brand.PredicatePosture, PosturePredicateSpec()),
 		brand.PredicateEnrollment: StatementSpec(brand.PredicateEnrollment, EnrollmentPredicateSpec()),
+		brand.PredicateEndpoint:   StatementSpec(brand.PredicateEndpoint, EndpointPredicateSpec()),
 	}
 }
 
@@ -290,6 +409,7 @@ func SchemaJSON() ([]byte, error) {
 		"predicate_types": map[string]string{
 			"posture":    brand.PredicatePosture,
 			"enrollment": brand.PredicateEnrollment,
+			"endpoint":   brand.PredicateEndpoint,
 		},
 		"statements": Schemas(),
 	}

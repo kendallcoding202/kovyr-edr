@@ -115,8 +115,9 @@ type item struct {
 func (it *item) index() uint64       { return it.e.Evidence.Index }
 func (it *item) env() *dsse.Envelope { return it.e.Evidence.Envelope }
 func (it *item) posture() bool       { return it.st != nil && it.st.IsPosture() }
+func (it *item) endpoint() bool      { return it.st != nil && it.st.IsEndpoint() }
 func (it *item) kind() string {
-	if it.st == nil || it.st.IsPosture() {
+	if it.st == nil || it.st.IsPosture() || it.st.IsEndpoint() {
 		return ""
 	}
 	return it.st.Str("kind")
@@ -354,6 +355,15 @@ func verifyEnrollment(p *Pack, s *Step, items []*item, genesis []*item, tenantKe
 			}
 		}
 	}
+	for _, it := range items {
+		if !it.endpoint() {
+			continue
+		}
+		// SPEC 6.5: until endpoint enrollment ships, an endpoint
+		// statement names no tenant, so nothing binds it to this firm.
+		s.Checked++
+		s.fail("%s: endpoint statements made before endpoint enrollment carry no tenant, so they cannot be part of a firm's Proof Pack", it.label)
+	}
 	var latestConn *item
 	for _, it := range items {
 		if !it.posture() {
@@ -538,7 +548,7 @@ func verifyTimestamps(s *Step, items []*item, trust *TrustPolicy) {
 			continue
 		}
 		claimed := it.st.Time("observed_at")
-		if !it.st.IsPosture() {
+		if !it.st.IsPosture() && !it.st.IsEndpoint() {
 			claimed = it.st.Time("enrolled_at")
 		}
 		switch {

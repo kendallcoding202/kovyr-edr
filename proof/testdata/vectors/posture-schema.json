@@ -2,11 +2,461 @@
  "canonicalization": "strict-json-c14n/v1",
  "in_toto_statement_type": "https://in-toto.io/Statement/v1",
  "predicate_types": {
+  "endpoint": "https://kovyr.com/attestation/endpoint/v1",
   "enrollment": "https://kovyr.com/attestation/enrollment/v1",
   "posture": "https://kovyr.com/attestation/posture/v1"
  },
  "schema_version": "posture-schema/v1",
  "statements": {
+  "https://kovyr.com/attestation/endpoint/v1": {
+   "t": "object",
+   "fields": {
+    "_type": {
+     "t": "const",
+     "value": "https://in-toto.io/Statement/v1"
+    },
+    "predicate": {
+     "t": "object",
+     "fields": {
+      "agent_version": {
+       "t": "object",
+       "fields": {
+        "major": {
+         "t": "int",
+         "min": 0,
+         "max": 65535
+        },
+        "minor": {
+         "t": "int",
+         "min": 0,
+         "max": 65535
+        },
+        "patch": {
+         "t": "int",
+         "min": 0,
+         "max": 65535
+        }
+       }
+      },
+      "attester": {
+       "t": "id",
+       "prefixes": [
+        "dev_"
+       ]
+      },
+      "attester_kind": {
+       "t": "enum",
+       "values": [
+        "device_agent"
+       ]
+      },
+      "nonce": {
+       "t": "hex",
+       "len": 32
+      },
+      "observed_at": {
+       "t": "timestamp"
+      },
+      "prev": {
+       "t": "hex",
+       "len": 64
+      },
+      "protection": {
+       "t": "object",
+       "fields": {
+        "bitlocker_os_volume": {
+         "t": "enum",
+         "values": [
+          "not_applicable",
+          "off",
+          "on",
+          "unknown"
+         ]
+        },
+        "defender": {
+         "t": "object",
+         "fields": {
+          "state": {
+           "t": "enum",
+           "values": [
+            "not_applicable",
+            "ok",
+            "unknown"
+           ]
+          }
+         },
+         "switch": {
+          "on": "state",
+          "cases": {
+           "not_applicable": {
+            "am_service": {
+             "t": "enum",
+             "values": [
+              "unknown"
+             ]
+            },
+            "antivirus": {
+             "t": "enum",
+             "values": [
+              "unknown"
+             ]
+            },
+            "behavior_monitor": {
+             "t": "enum",
+             "values": [
+              "unknown"
+             ]
+            },
+            "real_time_protection": {
+             "t": "enum",
+             "values": [
+              "unknown"
+             ]
+            },
+            "running_mode": {
+             "t": "enum",
+             "values": [
+              "unknown"
+             ]
+            },
+            "signature_age_days": {
+             "t": "int",
+             "min": -1,
+             "max": -1
+            },
+            "tamper_protection": {
+             "t": "enum",
+             "values": [
+              "unknown"
+             ]
+            }
+           },
+           "ok": {
+            "am_service": {
+             "t": "enum",
+             "values": [
+              "off",
+              "on",
+              "unknown"
+             ]
+            },
+            "antivirus": {
+             "t": "enum",
+             "values": [
+              "off",
+              "on",
+              "unknown"
+             ]
+            },
+            "behavior_monitor": {
+             "t": "enum",
+             "values": [
+              "off",
+              "on",
+              "unknown"
+             ]
+            },
+            "real_time_protection": {
+             "t": "enum",
+             "values": [
+              "off",
+              "on",
+              "unknown"
+             ]
+            },
+            "running_mode": {
+             "t": "enum",
+             "values": [
+              "edr_block",
+              "normal",
+              "passive",
+              "sxs_passive",
+              "unknown"
+             ]
+            },
+            "signature_age_days": {
+             "t": "int",
+             "min": -1,
+             "max": 65535
+            },
+            "tamper_protection": {
+             "t": "enum",
+             "values": [
+              "off",
+              "on",
+              "unknown"
+             ]
+            }
+           },
+           "unknown": {
+            "am_service": {
+             "t": "enum",
+             "values": [
+              "unknown"
+             ]
+            },
+            "antivirus": {
+             "t": "enum",
+             "values": [
+              "unknown"
+             ]
+            },
+            "behavior_monitor": {
+             "t": "enum",
+             "values": [
+              "unknown"
+             ]
+            },
+            "real_time_protection": {
+             "t": "enum",
+             "values": [
+              "unknown"
+             ]
+            },
+            "running_mode": {
+             "t": "enum",
+             "values": [
+              "unknown"
+             ]
+            },
+            "signature_age_days": {
+             "t": "int",
+             "min": -1,
+             "max": -1
+            },
+            "tamper_protection": {
+             "t": "enum",
+             "values": [
+              "unknown"
+             ]
+            }
+           }
+          }
+         }
+        },
+        "edr": {
+         "t": "object",
+         "fields": {
+          "state": {
+           "t": "enum",
+           "values": [
+            "not_applicable",
+            "ok",
+            "unknown"
+           ]
+          }
+         },
+         "switch": {
+          "on": "state",
+          "cases": {
+           "not_applicable": {},
+           "ok": {
+            "agents": {
+             "t": "result_list",
+             "of": {
+              "t": "object",
+              "fields": {
+               "running": {
+                "t": "bool"
+               },
+               "vendor": {
+                "t": "enum",
+                "values": [
+                 "bitdefender",
+                 "carbon_black",
+                 "cortex_xdr",
+                 "crowdstrike",
+                 "eset",
+                 "huntress",
+                 "malwarebytes",
+                 "microsoft_defender_endpoint",
+                 "sentinelone",
+                 "sophos",
+                 "symantec",
+                 "trend_micro",
+                 "webroot"
+                ]
+               }
+              }
+             },
+             "max_items": 8,
+             "key": "vendor"
+            }
+           },
+           "unknown": {}
+          }
+         }
+        },
+        "firewall_profiles_on": {
+         "t": "int",
+         "min": -1,
+         "max": 3
+        },
+        "memory_integrity": {
+         "t": "enum",
+         "values": [
+          "off",
+          "on",
+          "unknown"
+         ]
+        },
+        "security_center": {
+         "t": "object",
+         "fields": {
+          "state": {
+           "t": "enum",
+           "values": [
+            "not_applicable",
+            "ok",
+            "unknown"
+           ]
+          }
+         },
+         "switch": {
+          "on": "state",
+          "cases": {
+           "not_applicable": {
+            "enabled": {
+             "t": "int",
+             "min": -1,
+             "max": -1
+            },
+            "products": {
+             "t": "int",
+             "min": -1,
+             "max": -1
+            },
+            "up_to_date": {
+             "t": "int",
+             "min": -1,
+             "max": -1
+            }
+           },
+           "ok": {
+            "enabled": {
+             "t": "int",
+             "min": 0,
+             "max": 32
+            },
+            "products": {
+             "t": "int",
+             "min": 0,
+             "max": 32
+            },
+            "up_to_date": {
+             "t": "int",
+             "min": 0,
+             "max": 32
+            }
+           },
+           "unknown": {
+            "enabled": {
+             "t": "int",
+             "min": -1,
+             "max": -1
+            },
+            "products": {
+             "t": "int",
+             "min": -1,
+             "max": -1
+            },
+            "up_to_date": {
+             "t": "int",
+             "min": -1,
+             "max": -1
+            }
+           }
+          }
+         },
+         "le": [
+          [
+           "enabled",
+           "products"
+          ],
+          [
+           "up_to_date",
+           "products"
+          ]
+         ]
+        },
+        "vulnerable_driver_blocklist": {
+         "t": "enum",
+         "values": [
+          "default",
+          "off",
+          "on",
+          "unknown"
+         ]
+        }
+       }
+      },
+      "salt": {
+       "t": "hex",
+       "len": 64
+      },
+      "sensor_health": {
+       "t": "object",
+       "fields": {
+        "driver_blocklist_version": {
+         "t": "int",
+         "min": 0,
+         "max": 9007199254740991
+        },
+        "policy_version": {
+         "t": "int",
+         "min": 0,
+         "max": 9007199254740991
+        },
+        "sensor_running": {
+         "t": "bool"
+        },
+        "tamper_detected": {
+         "t": "bool"
+        }
+       }
+      },
+      "seq": {
+       "t": "int",
+       "min": 1,
+       "max": 2147483647
+      }
+     }
+    },
+    "predicateType": {
+     "t": "const",
+     "value": "https://kovyr.com/attestation/endpoint/v1"
+    },
+    "subject": {
+     "t": "array",
+     "of": {
+      "t": "object",
+      "fields": {
+       "digest": {
+        "t": "object",
+        "fields": {
+         "sha256": {
+          "t": "hex",
+          "len": 64
+         }
+        }
+       },
+       "name": {
+        "t": "id",
+        "prefixes": [
+         "tnt_",
+         "dev_",
+         "con_",
+         "stf_",
+         "scn_"
+        ]
+       }
+      }
+     },
+     "min_items": 1,
+     "max_items": 1
+    }
+   }
+  },
   "https://kovyr.com/attestation/enrollment/v1": {
    "t": "object",
    "fields": {

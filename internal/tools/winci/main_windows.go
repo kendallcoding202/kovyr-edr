@@ -4,6 +4,8 @@
 //	winci budget   --agent dist\kovyr-agent.exe --receiver dist\kovyr-receiver-dev.exe
 //	winci service  --agent dist\kovyr-agent.exe --receiver dist\kovyr-receiver-dev.exe
 //	winci tripwire --agent dist\kovyr-agent.exe --receiver dist\kovyr-receiver-dev.exe
+//	winci msi      --msi kit\kovyr-protection-alarm-x64.msi --upgrade-msi rebuild\kovyr-protection-alarm-x64.msi
+//	               --kit kit --agent dist\kovyr-agent.exe --receiver dist\kovyr-receiver-dev.exe
 //
 // budget measures CPU and memory of a `run --once` loop and of the
 // running heartbeat loop, and fails over budget (CLAUDE.md section 2:
@@ -12,7 +14,8 @@
 // against the dev receiver on loopback. tripwire runs the agent with the
 // ransomware tripwire on a temporary folder of dummy files it creates,
 // renames them all, and checks that the trip reaches the receiver at once
-// (tripwire_windows.go).
+// (tripwire_windows.go). msi installs, checks, uninstalls and reinstalls
+// the MSI silently on a fresh runner (msi_windows.go).
 //
 // This is a test tool. It starts processes (os/exec), which the agent
 // itself never does; it is not part of the agent binary.
@@ -75,12 +78,15 @@ func enableDebugPrivilege() {
 func main() {
 	enableDebugPrivilege()
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: winci budget|service|tripwire --agent EXE --receiver EXE")
+		fmt.Fprintln(os.Stderr, "usage: winci budget|service|tripwire --agent EXE --receiver EXE, or winci msi --msi MSI --upgrade-msi MSI --kit DIR --agent EXE --receiver EXE")
 		os.Exit(2)
 	}
 	fs := flag.NewFlagSet(os.Args[1], flag.ExitOnError)
 	agentExe := fs.String("agent", `dist\kovyr-agent.exe`, "kovyr-agent.exe to test")
 	receiverExe := fs.String("receiver", `dist\kovyr-receiver-dev.exe`, "kovyr-receiver-dev.exe")
+	msiPath := fs.String("msi", `kit\kovyr-protection-alarm-x64.msi`, "msi: the installer to test")
+	kitDir := fs.String("kit", `kit`, "msi: the folder with the test kit's PowerShell scripts")
+	upgradeMSI := fs.String("upgrade-msi", `rebuild\kovyr-protection-alarm-x64.msi`, "msi: a second build of the installer, to install over the first")
 	runs := fs.Int("runs", 20, "budget: how many run --once heartbeats")
 	loop := fs.Duration("loop", 3*time.Minute, "budget: how long to measure the running loop at a 1-minute interval")
 	fs.Parse(os.Args[2:])
@@ -92,6 +98,8 @@ func main() {
 		err = serviceTest(abs(*agentExe), abs(*receiverExe))
 	case "tripwire":
 		err = tripwireTest(abs(*agentExe), abs(*receiverExe))
+	case "msi":
+		err = msiTest(abs(*msiPath), abs(*upgradeMSI), abs(*kitDir), abs(*receiverExe), abs(*agentExe))
 	default:
 		err = fmt.Errorf("unknown command %q", os.Args[1])
 	}

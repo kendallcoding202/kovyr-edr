@@ -127,7 +127,8 @@ In rough order. Each one gets its own branch and review.
    decision: see `docs/tripwire.md`).
 7. **Signed updater.** Updates are a code-execution channel: signed and
    verified against a pinned key before they run, rolled out in stages, and
-   able to roll back. This needs a security review first.
+   able to roll back. This needs a security review first. Design for that
+   review: [`docs/updater-design.md`](updater-design.md).
 8. **TPM-backed key.** A key in the Microsoft Platform Crypto Provider behind
    `proof.Signer`, with TPM attestation. It makes the key `tpm2` instead of
    `software`, and "hardware" strength once the attestation is verified.

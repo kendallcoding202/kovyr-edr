@@ -24,7 +24,8 @@
 
         powershell -ExecutionPolicy Bypass -File .\tripwire-test.ps1
 
-    Then expect the "Possible ransomware" email within about 2 minutes.
+    Then expect the email "URGENT: possible ransomware on <computer>" within
+    about 2 minutes.
     Wait at least 30 minutes before running it again (the agent sends at
     most one immediate alarm per 10 minutes, and Kovyr emails once per
     episode).
@@ -91,8 +92,9 @@ try {
     Write-Host ("Renamed {0} files in {1:N1} seconds." -f $current.Count, $watch.Elapsed.TotalSeconds)
     Write-Host ""
     Write-Host "If the Kovyr Protection Alarm is installed and enrolled, it has just sent an extra check-in"
-    Write-Host "reporting possible ransomware. The 'Possible ransomware' email should arrive within about"
-    Write-Host "2 minutes (halden's switches AGENT_VERIFY_ENABLED and AGENT_ALERTS_ENABLED must be 1)."
+    Write-Host "reporting possible ransomware. The email 'URGENT: possible ransomware on <computer>' should"
+    Write-Host "arrive within about 2 minutes (halden's switches AGENT_VERIFY_ENABLED and AGENT_ALERTS_ENABLED"
+    Write-Host "must be 1)."
     Write-Host ""
     if ($WaitSeconds -gt 0) {
         Write-Host "Cleaning up in $WaitSeconds seconds..."

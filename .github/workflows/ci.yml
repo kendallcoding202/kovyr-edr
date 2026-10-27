@@ -81,3 +81,99 @@ jobs:
         if: failure() && runner.os == 'Windows'
         shell: pwsh
         run: Get-Content -ErrorAction SilentlyContinue "$env:ProgramData\Kovyr\logs\agent.log"
+
+  # The installer. It is built on Linux with wixl (msitools), then a fresh
+  # windows-latest runner installs it silently, checks the service, runs
+  # the founder's test scripts against it, and uninstalls it. The artifact
+  # kovyr-protection-alarm-test-kit is what docs/testing-on-your-pc.md
+  # downloads.
+  installer-build:
+    name: installer (build the MSI on Linux)
+    runs-on: ubuntu-latest
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Install wixl (msitools)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends wixl msitools
+
+      - name: Build the MSI
+        run: installer/build-msi.sh dist/installer
+
+      # Not shipped: the x64 MSI also runs on Windows on ARM, under
+      # emulation. This only keeps the code building for arm64; nothing
+      # tests an arm64 binary.
+      - name: windows/arm64 builds (untested, not shipped)
+        env:
+          GOOS: windows
+          GOARCH: arm64
+        run: go vet ./... && go build -o /dev/null ./cmd/kovyr-agent
+
+      - name: Assemble the test kit
+        run: |
+          mkdir -p dist/kit
+          cp dist/installer/kovyr-protection-alarm-x64.msi dist/installer/SHA256SUMS dist/kit/
+          cp scripts/test/*.ps1 docs/testing-on-your-pc.md dist/kit/
+          ls -l dist/kit
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: kovyr-protection-alarm-test-kit
+          path: dist/kit/
+          if-no-files-found: error
+
+      # A second build of the same MSI gets a new product code, like each
+      # new test kit; the Windows job installs it over the first. CI only.
+      - name: Build the MSI again (for the upgrade test)
+        run: installer/build-msi.sh dist/rebuild
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: installer-rebuild-ci-only
+          path: dist/rebuild/kovyr-protection-alarm-x64.msi
+          if-no-files-found: error
+          retention-days: 3
+
+  installer-test:
+    name: installer (install the MSI on windows-latest)
+    needs: installer-build
+    runs-on: windows-latest
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/download-artifact@v7
+        with:
+          name: kovyr-protection-alarm-test-kit
+          path: kit
+
+      - uses: actions/download-artifact@v7
+        with:
+          name: installer-rebuild-ci-only
+          path: rebuild
+
+      - name: Build the dev receiver and the plain agent
+        shell: bash
+        run: go build -o dist/ ./cmd/kovyr-agent ./cmd/kovyr-receiver-dev
+
+      # Silent install with SERVER pointing at the dev receiver on
+      # loopback, the test kit's scripts, an upgrade, uninstall (key kept),
+      # reinstall (same device), uninstall, and a refusal to install over
+      # a service set up by hand.
+      - name: MSI install, test kit, upgrade, uninstall
+        run: go run ./internal/tools/winci msi --msi kit/kovyr-protection-alarm-x64.msi --upgrade-msi rebuild/kovyr-protection-alarm-x64.msi --kit kit --agent dist/kovyr-agent.exe --receiver dist/kovyr-receiver-dev.exe
+
+      - name: Agent log (on failure)
+        if: failure()
+        shell: pwsh
+        run: Get-Content -ErrorAction SilentlyContinue "$env:ProgramData\Kovyr\logs\agent.log"

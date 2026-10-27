@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Kovyr Protection Alarm installer: one per-machine x64 MSI.
+  Built on Linux with wixl (msitools) by installer/build-msi.sh; wixl reads
+  this WiX 3 subset. See docs/windows-service.md ("Install with the MSI").
+
+  Install:
+    * kovyr-agent.exe goes to C:\Program Files\Kovyr\ (where only
+      administrators can write: the service runs as SYSTEM);
+    * then, as SYSTEM, the agent's own install code runs (`service
+      install` with the create-key and start flags; see the
+      KovyrInstallService custom action below, and note that an XML
+      comment cannot spell out its double-dash flags).
+      It makes the device key in C:\ProgramData\Kovyr if there is none (an
+      existing key is always kept), writes agent-config.json there,
+      registers the KovyrAgent service (LocalSystem, automatic delayed
+      start, restart on failure) and starts it. If it fails, the whole
+      install rolls back.
+  Uninstall (Settings > Apps, or msiexec /x):
+    * Windows Installer stops and deletes the KovyrAgent service and
+      removes the binary and C:\Program Files\Kovyr.
+    * C:\ProgramData\Kovyr (device key, chain state, settings, logs) is
+      KEPT, so a reinstall keeps the same device identity and enrollment.
+      To remove it too, delete that folder by hand after uninstalling.
+  Upgrade: a newer build (same or higher version) removes the old one
+  first, then installs, keeping the key.
+
+  Properties (from an elevated prompt, e.g. msiexec /i kovyr.msi SERVER=...):
+    SERVER        the receiver; default Kovyr production.
+    DEV_INSECURE  1 allows plain http, and only to localhost (CI and
+                  development); default 0.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="Kovyr Protection Alarm" Manufacturer="Kovyr" Version="$(var.Version)"
+           UpgradeCode="76817CD3-D389-4C31-B3EF-78D8DF5D7572" Language="1033" Codepage="1252">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine"
+             Description="Kovyr Protection Alarm"
+             Comments="Reports this computer's protection status in signed heartbeats. Read-only: it changes nothing and accepts no commands."/>
+
+    <!-- A rebuilt MSI of the same version replaces the installed one. -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of the Kovyr Protection Alarm is already installed."/>
+    <Media Id="1" Cabinet="kovyr.cab" EmbedCab="yes"/>
+
+    <Property Id="SERVER" Value="https://agent.kovyr.com/api/agent"/>
+    <Property Id="DEV_INSECURE" Value="0"/>
+    <Property Id="ARPNOMODIFY" Value="1"/>
+    <Property Id="ARPNOREPAIR" Value="1"/>
+    <Property Id="ARPURLINFOABOUT" Value="https://kovyr.com"/>
+
+    <!-- A KovyrAgent service this installer did not make (set up by hand
+         with `kovyr-agent service install`) must be removed first: the
+         install would fail on it, and a rollback must never delete a
+         service it did not create. An upgrade replaces its own service. -->
+    <Property Id="KOVYR_SERVICE_PRESENT">
+      <RegistrySearch Id="KovyrServiceSearch" Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\KovyrAgent"
+                      Name="ImagePath" Type="raw"/>
+    </Property>
+    <Condition Message="The Kovyr Protection Alarm service is already installed, but not by this installer. Remove it first: in an administrator prompt run &quot;C:\Program Files\Kovyr\kovyr-agent.exe&quot; service uninstall, then run this installer again.">Installed OR NOT KOVYR_SERVICE_PRESENT OR WIX_UPGRADE_DETECTED OR WIX_SAME_VERSION_UPGRADE_DETECTED</Condition>
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLDIR" Name="Kovyr">
+          <Component Id="AgentExe" Guid="61EF5468-AD1F-4A66-A384-0EBED84B79DD" Win64="yes">
+            <File Id="KovyrAgentExe" Name="kovyr-agent.exe" Source="$(var.AgentExe)" KeyPath="yes"/>
+            <!-- Uninstall: stop the service, wait, and delete it. -->
+            <ServiceControl Id="KovyrAgentControl" Name="KovyrAgent" Stop="uninstall" Remove="uninstall" Wait="yes"/>
+          </Component>
+        </Directory>
+      </Directory>
+    </Directory>
+    <Feature Id="Main" Level="1">
+      <ComponentRef Id="AgentExe"/>
+    </Feature>
+
+    <!-- Deferred, not impersonated: runs as SYSTEM after the files are in
+         place. Its exit code is checked; a failure rolls the install back. -->
+    <CustomAction Id="KovyrInstallService" FileKey="KovyrAgentExe"
+                  ExeCommand="service install --server &quot;[SERVER]&quot; --dev-insecure=[DEV_INSECURE] --create-key --start"
+                  Execute="deferred" Impersonate="no" Return="check"/>
+    <!-- If the install fails after the service exists, remove it again. -->
+    <CustomAction Id="KovyrInstallServiceRollback" FileKey="KovyrAgentExe"
+                  ExeCommand="service uninstall"
+                  Execute="rollback" Impersonate="no" Return="ignore"/>
+
+    <InstallExecuteSequence>
+      <!-- Remove an older build before installing (afterInstallValidate). -->
+      <RemoveExistingProducts Sequence="1401"/>
+      <!-- Last, after everything else is in place (PublishProduct 6400,
+           InstallFinalize 6600). The rollback action comes first. -->
+      <Custom Action="KovyrInstallServiceRollback" Sequence="6501">NOT Installed</Custom>
+      <Custom Action="KovyrInstallService" Sequence="6502">NOT Installed</Custom>
+    </InstallExecuteSequence>
+  </Product>
+</Wix>

@@ -10,9 +10,10 @@ that receives its heartbeats.
   local testing only (in-memory state plus a JSON-lines file, no auth on
   `/v0/status`, no rate limits). Do not expose it to a network.
 
-Statements follow the Kovyr proof spec, `SPEC.md` in
-`kendallcoding202.github.io/proof-of-protection/engine/` (cited below as
-"SPEC"). Where this page and SPEC disagree, SPEC wins.
+Statements follow the Kovyr proof spec, [`proof/SPEC.md`](../proof/SPEC.md)
+(cited below as "SPEC"). The proof library and SPEC were vendored from the
+website repo and this copy is canonical (see `proof/README.md`). Where this
+page and SPEC disagree, SPEC wins.
 
 ## Rules the agent enforces
 
@@ -106,16 +107,22 @@ The dev receiver answers with a small JSON body for people using `curl`
    "device_id":"dev_1cc3bdff90b0f8ae","label":"Front desk PC",
    "last_check_in":"2026-10-26T19:57:21Z","last_observed_at":"2026-10-26T19:57:21Z",
    "last_seq":2,"accepted":2,"refused":0,
-   "overdue":false,"missed_intervals":0,"gaps":[],
+   "overdue":false,"missed_intervals":0,"lost_statements":0,"gaps":[],
    "tamper_signals_active":[],"tamper_events":0,
    "events":[],
    "latest":{"seq":2,"defender_state":"ok","defender_real_time_protection":"on", "...": "..."}}]}
 ```
 
 * **Check-ins and gaps.** A gap is a stretch between consecutive statements
-  (by `observed_at`) longer than 1.5 intervals, counted as missed intervals.
-  An ongoing gap is the time since the last statement. `overdue` means
-  nothing has arrived for 1.5 intervals, or the device never checked in.
+  (by `observed_at`) longer than 1.5 intervals, counted as missed intervals,
+  or a hole in the seq numbers, counted as `lost_statements` (SPEC 8:
+  statements signed but never received), or both. A hole with no missed
+  interval is a gap of its own; a hole before the first statement seen is a
+  zero-length gap at that statement. An ongoing gap is the time since the
+  last statement. `overdue` means nothing has arrived for 1.5 intervals, or
+  the device never checked in. `lost_statements` on the device is the total.
+  `latest` also shows `edr_agents_total` and `edr_agents_truncated`, since
+  the statement's agent list is capped.
 * **Tamper signals.** Each is raised once, when it first appears:
   * `protection_off`: Defender is the active antivirus (`running_mode`
     `normal`) and its real-time protection, antivirus or service is off;
@@ -124,7 +131,8 @@ The dev receiver answers with a small JSON body for people using `curl`
   * `tamper_protection_off`: Defender tamper protection off;
   * `edr_not_running`: a known EDR agent is installed but not running;
   * chain and replay: `chain_broken` (wrong `prev`), `missing_seq` (seq
-    numbers skipped: lost, dropped or withheld), `replay_old_seq`,
+    numbers skipped: lost, dropped or withheld; also a lost-statement gap),
+    `replay_old_seq`,
     `replay_nonce`, `unknown_nonce`, `bad_signature`, `invalid_statement`,
     `future_timestamp`, `out_of_order`.
 
@@ -151,7 +159,8 @@ An in-toto Statement v1 (SPEC 6), canonical JSON, one subject:
      "defender":{"state":"ok","am_service":"on","antivirus":"on","real_time_protection":"on",
                  "behavior_monitor":"on","tamper_protection":"on",
                  "signature_age_days":0,"running_mode":"normal"},
-     "edr":{"state":"ok","agents":[{"running":true,"vendor":"microsoft_defender_endpoint"}]},
+     "edr":{"state":"ok","agents":{"items":[{"running":true,"vendor":"microsoft_defender_endpoint"}],
+                                   "total":1,"truncated":false}},
      "bitlocker_os_volume":"on","firewall_profiles_on":3,
      "vulnerable_driver_blocklist":"default","memory_integrity":"on"}}}
 ```
@@ -168,11 +177,17 @@ An in-toto Statement v1 (SPEC 6), canonical JSON, one subject:
   self-tamper checks yet (it means "none detected", not "checked and
   clean"); `driver_blocklist_version` is 0 because v0 does not read it; and
   `policy_version` is 0 because there is no policy yet.
-* **`protection`** holds the protection checks. Integers use `-1` for
-  "unknown or not applicable". Every check that can be absent has a `state`
-  (`ok`, `unknown`, `not_applicable`), and when it is not `ok` its values are
-  unknown. `edr.agents` is sorted by vendor, one entry per vendor, and never
-  holds a service name.
+* **`protection`** holds the protection checks (SPEC 6.5). Integers use
+  `-1` for "unknown or not applicable". Every check that can be absent has a
+  `state` (`ok`, `unknown`, `not_applicable`), and when it is not `ok` its
+  counts are `-1`, its toggles `unknown`, and `edr` has no `agents`.
+  `edr.agents` is a SPEC result list: one record per vendor, sorted by
+  vendor, never a service name, at most 8 listed. When more are found, the
+  stopped ones are kept first and `truncated` is true; `total` is the
+  number found.
+* **No `tenant`** until endpoint enrollment ships, and `seq` 1 links to the
+  all-zero `prev` (SPEC 6.5). Such statements are verified one by one by the
+  receiver that holds the device key and cannot go into a Proof Pack.
 * `security_center` is `not_applicable` on server editions of Windows:
   Security Center is a client feature, and CI runners have the namespace
   with no products in it.
@@ -201,12 +216,14 @@ These follow SPEC 8 and the engine's reference ingest (`tlog.Server`):
 * `seq` must be after the last accepted one. An exact re-delivery of the
   latest statement is accepted as a duplicate.
 * `prev` must match the previous payload. For `seq` 1 it must be the
-  genesis value (see the deviations below).
+  genesis value (all zeros until endpoint enrollment, SPEC 6.5).
+* A `seq` more than one ahead is accepted (SPEC 8): the hole is a
+  lost-statement gap in status and raises `missing_seq`, so one lost upload
+  never locks a device out. `prev` cannot be checked across the hole.
 
-**Dev receiver deviation:** SPEC refuses a `seq` that is not exactly one more
-than the last. One lost upload would then stop a device from ever reporting
-again. The dev receiver accepts the statement and raises a `missing_seq`
-tamper signal, and a broken `prev` raises `chain_broken`.
+**Dev receiver difference:** a broken `prev` between consecutive statements
+is accepted and raises `chain_broken`, where SPEC's ingest refuses it. The
+dev receiver flags chain problems so you can see them in status.
 
 **Consequence for the agent:** with a 10-minute nonce and a 5-minute clock
 window, a statement must be delivered within minutes. So the agent signs
@@ -215,64 +232,18 @@ the receiver sees a gap ("silence is a signal"). Its on-disk queue (500
 entries / 5 MB, oldest dropped first) bridges short upload failures, not
 long offline periods.
 
-## What SPEC must add before halden accepts these statements
+## Spec decisions (Ticket 2)
 
-SPEC 6.4 lists `sensor_health` as "schema only, not implemented", and
-today's verifiers reject the `endpoint/v1` predicate type. Proposed additions
-to `posture-schema.json`, in the engine's schema language:
+The open questions from Ticket 1 are decided and written into SPEC:
 
-```json
-"https://kovyr.com/attestation/endpoint/v1": {"t":"object","fields":{
-  "tenant":{"t":"id","prefixes":["tnt_"]},
-  "attester":{"t":"id","prefixes":["dev_"]},
-  "attester_kind":{"t":"enum","values":["device_agent"]},
-  "seq":{"t":"int","min":1,"max":2147483647},
-  "prev":{"t":"hex","len":64}, "nonce":{"t":"hex","len":32}, "salt":{"t":"hex","len":64},
-  "observed_at":{"t":"timestamp"},
-  "agent_version":{"t":"object","fields":{
-    "major":{"t":"int","min":0,"max":65535},"minor":{"t":"int","min":0,"max":65535},
-    "patch":{"t":"int","min":0,"max":65535}}},
-  "sensor_health":"<SPEC 6.4, unchanged>",
-  "protection":{"t":"object","fields":{
-    "security_center":{"t":"object","fields":{
-      "state":{"t":"enum","values":["not_applicable","ok","unknown"]},
-      "products":{"t":"int","min":-1,"max":32},"enabled":{"t":"int","min":-1,"max":32},
-      "up_to_date":{"t":"int","min":-1,"max":32}},
-      "le":[["enabled","products"],["up_to_date","products"]]},
-    "defender":{"t":"object","fields":{
-      "state":{"t":"enum","values":["not_applicable","ok","unknown"]},
-      "am_service":{"t":"enum","values":["off","on","unknown"]},
-      "antivirus":{"t":"enum","values":["off","on","unknown"]},
-      "real_time_protection":{"t":"enum","values":["off","on","unknown"]},
-      "behavior_monitor":{"t":"enum","values":["off","on","unknown"]},
-      "tamper_protection":{"t":"enum","values":["off","on","unknown"]},
-      "signature_age_days":{"t":"int","min":-1,"max":65535},
-      "running_mode":{"t":"enum","values":["edr_block","normal","passive","sxs_passive","unknown"]}}},
-    "edr":{"t":"object","fields":{
-      "state":{"t":"enum","values":["not_applicable","ok","unknown"]},
-      "agents":{"t":"array","min_items":0,"max_items":13,"of":{"t":"object","fields":{
-        "vendor":{"t":"enum","values":["bitdefender","carbon_black","cortex_xdr","crowdstrike","eset",
-          "huntress","malwarebytes","microsoft_defender_endpoint","sentinelone","sophos","symantec",
-          "trend_micro","webroot"]},
-        "running":{"t":"bool"}}}}}},
-    "bitlocker_os_volume":{"t":"enum","values":["not_applicable","off","on","unknown"]},
-    "firewall_profiles_on":{"t":"int","min":-1,"max":3},
-    "vulnerable_driver_blocklist":{"t":"enum","values":["default","off","on","unknown"]},
-    "memory_integrity":{"t":"enum","values":["off","on","unknown"]}}}}}
-```
+| Question | Decision | SPEC |
+|---|---|---|
+| `protection` and `agent_version` | Standard fields of `endpoint/v1`, same no-free-text rules | 6.5 |
+| Tenant and the seq-1 link | Arrive with endpoint enrollment; until then no `tenant` and an all-zero `prev` for seq 1 | 6.5 |
+| Lost uploads | Ingest accepts a seq jump and records a lost-report gap; verifiers disclose it (sequence warning, summary `lost_reports`) | 8, 9, 11.3, 13 |
+| Offline recording | Offline periods stay gaps; TPM-clock-backed offline records are future work, as lower-strength evidence | 8, 18 |
+| `edr.agents` | A result list: capped at 8, sorted by vendor, `total` and `truncated` | 6.5 |
 
-Questions for the spec owner:
-
-1. **Tenant.** v0 statements have no `tenant`, because there is no tenant key
-   until enrollment exists. Add it with the enrollment ticket?
-2. **Seq 1.** SPEC links `seq` 1 to the enrollment payload. v0 uses an
-   all-zero `prev` (`proof.GenesisPrev`) until then.
-3. **Lost uploads.** "A number is spent once signed" plus "ingest refuses
-   any seq but last+1" leaves a device stuck after one undeliverable
-   statement. Should ingest accept the jump and flag it, as the dev receiver
-   does?
-4. **Offline recording.** The 10-minute nonce and 5-minute clock window rule
-   out recording an offline period for later upload. Is that intended?
-5. **`edr.agents`** is an array sorted and unique by `vendor`. The engine's
-   `array` type has no sort key, so should it become a SPEC "result list"
-   (`items`/`total`/`truncated`, keyed by `vendor`)?
+halden must use the vendored validator (or a port of it) for these rules.
+The Python and JavaScript implementations in the website repo do not know
+them yet.

@@ -167,7 +167,7 @@ func cmdKeygen(dir string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "keygen:", err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "Created device key %s in %s\n", s.Public().DeviceID(), keystore.Path(dir))
+	fmt.Fprintf(stdout, "Created device key %s in %s\n", proof.DeviceID(s.Public()), keystore.Path(dir))
 	fmt.Fprintf(stdout, "Evidence strength: %s key", s.Protection())
 	if runtime.GOOS == "windows" {
 		fmt.Fprintln(stdout, ", sealed with DPAPI (machine scope).")
@@ -195,7 +195,7 @@ func cmdEnroll(dir string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "enroll:", err)
 		return 1
 	}
-	e := enrollment{DeviceID: s.Public().DeviceID(), PublicKey: s.Public().Base64(), KeyID: s.Public().KeyID(),
+	e := enrollment{DeviceID: proof.DeviceID(s.Public()), PublicKey: s.Public().Base64(), KeyID: s.Public().KeyID(),
 		Alg: proof.AlgES256, KeyProtection: s.Protection().String()}
 	b, _ := json.MarshalIndent(e, "", "  ")
 	fmt.Fprintln(stdout, string(b))
@@ -239,7 +239,7 @@ func cmdRun(dir, server string, interval time.Duration, insecure, once bool, std
 		logger.Printf("delivered; chain head seq %d", a.State().Seq)
 		return 0
 	}
-	logger.Printf("device %s reporting to %s every %v (read-only; accepts no commands)", signer.Public().DeviceID(), server, interval)
+	logger.Printf("device %s reporting to %s every %v (read-only; accepts no commands)", proof.DeviceID(signer.Public()), server, interval)
 	if err := a.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		logger.Print(err)
 		return 1

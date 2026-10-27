@@ -42,7 +42,7 @@ func newDev(t *testing.T) *testDev {
 }
 
 func (d *testDev) enrolled(label string) Device {
-	return Device{DeviceID: d.s.Public().DeviceID(), PublicKey: d.s.Public().Base64(), Label: label}
+	return Device{DeviceID: proof.DeviceID(d.s.Public()), PublicKey: d.s.Public().Base64(), Label: label}
 }
 
 func healthy() proof.Readings {
@@ -75,7 +75,7 @@ func (d *testDev) next(t *testing.T, r *Receiver, c *clock, o opt) []byte {
 		n = *o.nonce
 	} else {
 		var err error
-		if n, err = r.IssueNonce(d.s.Public().DeviceID()); err != nil {
+		if n, err = r.IssueNonce(proof.DeviceID(d.s.Public())); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -140,7 +140,7 @@ func hasEvent(res Result, kind string) bool {
 func statusOf(t *testing.T, r *Receiver, d *testDev) DeviceStatus {
 	t.Helper()
 	for _, s := range r.Status().Devices {
-		if s.DeviceID == d.s.Public().DeviceID() {
+		if s.DeviceID == proof.DeviceID(d.s.Public()) {
 			return s
 		}
 	}
@@ -161,8 +161,11 @@ func TestHealthyChain(t *testing.T) {
 	}
 	c.now = c.now.Add(-14 * time.Minute)
 	s := statusOf(t, r, d)
-	if s.LastSeq != 3 || s.Overdue || len(s.Gaps) != 0 || s.TamperEvents != 0 || s.Label != "Front desk PC" {
+	if s.LastSeq != 3 || s.Overdue || len(s.Gaps) != 0 || s.TamperEvents != 0 || s.Label != "Front desk PC" || s.LostStatements != 0 {
 		t.Fatalf("status %+v", s)
+	}
+	if l := s.Latest; l == nil || l.EDRRunning != 1 || l.EDRTotal != 1 || l.EDRTruncated {
+		t.Fatalf("latest %+v", s.Latest)
 	}
 }
 
@@ -198,7 +201,7 @@ func TestReplayOfAnOldSeqIsRefused(t *testing.T) {
 func TestReusedNonceIsRefused(t *testing.T) {
 	d := newDev(t)
 	r, c := newReceiver(t, nil, d)
-	n, _ := r.IssueNonce(d.s.Public().DeviceID())
+	n, _ := r.IssueNonce(proof.DeviceID(d.s.Public()))
 	expect(t, r.Receive(d.next(t, r, c, opt{nonce: &n})), 200, "accepted")
 	res := r.Receive(d.next(t, r, c, opt{nonce: &n}))
 	expect(t, res, 409, "refused")
@@ -219,7 +222,7 @@ func TestUnknownExpiredAndMisdirectedNonces(t *testing.T) {
 	}
 	a.undo() // that report was refused
 
-	forB, _ := r.IssueNonce(b.s.Public().DeviceID())
+	forB, _ := r.IssueNonce(proof.DeviceID(b.s.Public()))
 	res = r.Receive(a.next(t, r, c, opt{nonce: &forB}))
 	expect(t, res, 409, "refused")
 	if !hasEvent(res, EvUnknownNonce) || res.Reason != "misdirected nonce" {
@@ -227,7 +230,7 @@ func TestUnknownExpiredAndMisdirectedNonces(t *testing.T) {
 	}
 	a.undo()
 
-	old, _ := r.IssueNonce(a.s.Public().DeviceID())
+	old, _ := r.IssueNonce(proof.DeviceID(a.s.Public()))
 	c.now = c.now.Add(11 * time.Minute)
 	res = r.Receive(a.next(t, r, c, opt{nonce: &old}))
 	expect(t, res, 409, "refused")
@@ -295,11 +298,42 @@ func TestMissingSeqIsFlagged(t *testing.T) {
 	if !hasEvent(res, EvMissingSeq) {
 		t.Fatalf("events %v", res.Events)
 	}
+	// SPEC 8: the hole is a lost-statement gap in status, even though no
+	// heartbeat interval was missed.
+	s := statusOf(t, r, d)
+	if s.LostStatements != 1 || len(s.Gaps) != 1 || s.Gaps[0].LostStatements != 1 || s.Gaps[0].MissedIntervals != 0 || s.Gaps[0].To == nil {
+		t.Fatalf("lost statement not shown as a gap: lost %d gaps %+v", s.LostStatements, s.Gaps)
+	}
+	// The device keeps reporting after the hole.
+	expect(t, r.Receive(d.next(t, r, c, opt{})), 200, "accepted")
+	if s := statusOf(t, r, d); s.LastSeq != 4 || s.LostStatements != 1 {
+		t.Fatalf("after the hole: %+v", s)
+	}
 	// First statement seen is not seq 1 (history before it is missing).
 	e := newDev(t)
 	r2, c2 := newReceiver(t, nil, e)
 	if res := r2.Receive(e.next(t, r2, c2, opt{seq: 5})); !hasEvent(res, EvMissingSeq) {
 		t.Fatalf("late start: %v", res.Events)
+	}
+	if s := statusOf(t, r2, e); s.LostStatements != 4 || len(s.Gaps) != 1 || s.Gaps[0].LostStatements != 4 {
+		t.Fatalf("late start gap: %+v", s.Gaps)
+	}
+}
+
+// A hole and a long silence between the same two statements are one gap.
+func TestLostStatementsAndMissedIntervalsTogether(t *testing.T) {
+	d := newDev(t)
+	r, c := newReceiver(t, nil, d)
+	expect(t, r.Receive(d.next(t, r, c, opt{})), 200, "accepted")
+	for i := 0; i < 3; i++ { // three statements signed, all lost
+		c.now = c.now.Add(15 * time.Minute)
+		d.next(t, r, c, opt{})
+	}
+	c.now = c.now.Add(15 * time.Minute)
+	expect(t, r.Receive(d.next(t, r, c, opt{})), 200, "accepted")
+	s := statusOf(t, r, d)
+	if len(s.Gaps) != 1 || s.Gaps[0].LostStatements != 3 || s.Gaps[0].MissedIntervals != 3 || s.LostStatements != 3 || s.MissedIntervals != 3 {
+		t.Fatalf("gaps %+v", s.Gaps)
 	}
 }
 
@@ -315,7 +349,7 @@ func TestBadSignatureAndUnenrolledKeys(t *testing.T) {
 		t.Errorf("events %v", res.Events)
 	}
 	// A stranger signing with its own key is not enrolled.
-	sn, _ := r.IssueNonce(d.s.Public().DeviceID())
+	sn, _ := r.IssueNonce(proof.DeviceID(d.s.Public()))
 	expect(t, r.Receive(stranger.next(t, r, c, opt{nonce: &sn})), 403, "refused")
 	// The stranger claiming the enrolled device's keyid fails the signature.
 	forged := stranger.next(t, r, c, opt{nonce: &sn})
@@ -419,7 +453,14 @@ func TestRestartReplaysTheStore(t *testing.T) {
 	c.now = c.now.Add(45 * time.Minute)
 	r.Receive(d.next(t, r, c, opt{readings: func(rd *proof.Readings) { rd.Defender.TamperProtection = proof.ToggleOff }}))
 	r.Receive(env2) // replay, refused and recorded
+	tamperOff := func(rd *proof.Readings) { rd.Defender.TamperProtection = proof.ToggleOff }
+	d.next(t, r, c, opt{readings: tamperOff}) // signed, never delivered: a lost statement
+	c.now = c.now.Add(15 * time.Minute)
+	r.Receive(d.next(t, r, c, opt{readings: tamperOff}))
 	before := statusOf(t, r, d)
+	if before.LostStatements != 1 {
+		t.Fatalf("lost statements before restart: %d", before.LostStatements)
+	}
 
 	r2, err := New(Config{Interval: 15 * time.Minute, Now: c.Now}, []Device{d.enrolled("Front desk PC")}, store)
 	if err != nil {
@@ -427,7 +468,7 @@ func TestRestartReplaysTheStore(t *testing.T) {
 	}
 	after := statusOf(t, r2, d)
 	if after.LastSeq != before.LastSeq || after.Accepted != before.Accepted || after.Refused != before.Refused ||
-		len(after.Events) != len(before.Events) || len(after.Gaps) != len(before.Gaps) || !after.HasSignal(EvTamperOff) {
+		len(after.Events) != len(before.Events) || len(after.Gaps) != len(before.Gaps) || after.LostStatements != before.LostStatements || !after.HasSignal(EvTamperOff) {
 		t.Fatalf("status changed across restart:\nbefore %+v\nafter  %+v", before, after)
 	}
 	// And the chain continues: an old envelope is still a replay.
@@ -441,7 +482,7 @@ func TestRestartReplaysTheStore(t *testing.T) {
 func TestAgentToReceiverOverHTTP(t *testing.T) {
 	k, _ := proof.GenerateSoftwareKey()
 	s, _ := proof.NewSoftwareSigner(k)
-	dev := Device{DeviceID: s.Public().DeviceID(), PublicKey: s.Public().Base64()}
+	dev := Device{DeviceID: proof.DeviceID(s.Public()), PublicKey: s.Public().Base64()}
 	r, err := New(Config{}, []Device{dev}, nil)
 	if err != nil {
 		t.Fatal(err)

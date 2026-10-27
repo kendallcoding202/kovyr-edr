@@ -1,0 +1,16 @@
+{
+  "c2sp_signed_note_example": {
+    "note": "This is an example message.\n\n— example.com/foo Uw2QOkn8srV1yJGh2VYRlL1Tnagv1YEq6TfXppzi2ONncAlTgK7Ztg1ERYNZXsYjOBH3mFXmRKuwHjG1Yu72IneyaQM=\n",
+    "vkey": "example.com/foo+530d903a+AekyeRrm56hApGFkyQR4ZCbV54Id2LKaANYcrnKv3U2k"
+  },
+  "checkpoint_body": "example.com/proof-vectors-log\n12\neB2E3h47omnzgPwc186QxvVARFgaohxp+0J/FGON+MI=\n",
+  "cosignature_time": 1793232000,
+  "cosigned_checkpoint": "example.com/proof-vectors-log\n12\neB2E3h47omnzgPwc186QxvVARFgaohxp+0J/FGON+MI=\n\n— example.com/proof-vectors-log ryVi2PqYKinEGVBiYc4T6ORETnmjxAvfgfhwsX+xVakSJ9VQdEmprv78AY8iUnhlp+YEqJN+pUhnlFx4rpfVgVIvEwQ=\n— witness.example JZ9yTAAAAABq4oyAniS0yssRhyOeGJYMzwstLdLwKvdjn/mAevbuKPiCO55XUlTiWIQjUQB7Ky9Rsn6Eiv2JKL2w8g6GjX/ADqGcAw==\n",
+  "cosigned_message": "cosignature/v1\ntime 1793232000\nexample.com/proof-vectors-log\n12\neB2E3h47omnzgPwc186QxvVARFgaohxp+0J/FGON+MI=\n",
+  "log_key_seed_hex": "d2f80043c7044aaec417cc669c6d4d1ae83eed4653f2d2455f31d9cca0dc5289",
+  "log_vkey": "example.com/proof-vectors-log+af2562d8+AVBed7QRRMO5LadKJgebocg8nlqns8fRkOA1uQFkrO66",
+  "notes": "Log key ID = SHA-256(name||0x0A||0x01||key)[:4]; witness key ID uses type 0x04; the cosignature line encodes keyID||time(8 bytes BE)||signature.",
+  "signed_checkpoint": "example.com/proof-vectors-log\n12\neB2E3h47omnzgPwc186QxvVARFgaohxp+0J/FGON+MI=\n\n— example.com/proof-vectors-log ryVi2PqYKinEGVBiYc4T6ORETnmjxAvfgfhwsX+xVakSJ9VQdEmprv78AY8iUnhlp+YEqJN+pUhnlFx4rpfVgVIvEwQ=\n",
+  "witness_key_seed_hex": "e231a2f8056aa77d10224070095877e931dc3d92fb3cc9ee44bf352a762edace",
+  "witness_vkey": "witness.example+259f724c+BAVbrWXeEk0VgQojAgg1+VEkWbxQB62Gr+eOSB781Bgb"
+}

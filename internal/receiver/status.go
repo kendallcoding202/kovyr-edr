@@ -8,11 +8,14 @@ import (
 	"github.com/kendallcoding202/kovyr-edr/internal/proof"
 )
 
-// Gap is a stretch with no statement for longer than the grace period.
+// Gap is a stretch with no statement for longer than the grace period,
+// or a hole in the seq numbers (SPEC 8: statements signed but never
+// received), or both.
 type Gap struct {
 	From            time.Time  `json:"from"`
 	To              *time.Time `json:"to,omitempty"` // nil while ongoing
 	MissedIntervals int        `json:"missed_intervals"`
+	LostStatements  int        `json:"lost_statements"` // seq numbers skipped just before To
 	Ongoing         bool       `json:"ongoing"`
 }
 
@@ -27,6 +30,7 @@ type DeviceStatus struct {
 	Refused         int        `json:"refused"`
 	Overdue         bool       `json:"overdue"`
 	MissedIntervals int        `json:"missed_intervals"`
+	LostStatements  int        `json:"lost_statements"` // total seq numbers never received
 	Gaps            []Gap      `json:"gaps"`
 	TamperSignals   []string   `json:"tamper_signals_active"` // from the latest statement
 	TamperEvents    int        `json:"tamper_events"`
@@ -45,6 +49,8 @@ type Latest struct {
 	AVEnabled           int16  `json:"antivirus_products_enabled"`
 	EDRRunning          int    `json:"edr_agents_running"`
 	EDRStopped          int    `json:"edr_agents_not_running"`
+	EDRTotal            int    `json:"edr_agents_total"`     // agents found; the list may be capped
+	EDRTruncated        bool   `json:"edr_agents_truncated"` // the statement listed only some
 	BitLocker           string `json:"bitlocker_os_volume"`
 	FirewallProfilesOn  int8   `json:"firewall_profiles_on"`
 	DriverBlocklist     string `json:"vulnerable_driver_blocklist"`
@@ -89,7 +95,7 @@ func (r *Receiver) deviceStatus(d *device, now time.Time) DeviceStatus {
 	for _, k := range sortedKeys(d.active) {
 		s.TamperSignals = append(s.TamperSignals, k)
 	}
-	s.Gaps, s.MissedIntervals = gaps(d.checkins, now, r.cfg.Interval)
+	s.Gaps, s.MissedIntervals, s.LostStatements = gaps(d.checkins, now, r.cfg.Interval)
 	if !d.haveChain {
 		s.Overdue = true // enrolled but never checked in
 		return s
@@ -104,32 +110,48 @@ func (r *Receiver) deviceStatus(d *device, now time.Time) DeviceStatus {
 }
 
 // gaps finds stretches between consecutive statements (by observed_at),
-// and since the last one, that exceed the grace period.
-func gaps(checkins []time.Time, now time.Time, interval time.Duration) ([]Gap, int) {
-	out := []Gap{}
-	missed := 0
+// and since the last one, that exceed the grace period, and holes in the
+// seq numbers (lost statements). A hole before the first statement seen
+// is a zero-length gap at that statement.
+func gaps(checkins []checkin, now time.Time, interval time.Duration) (out []Gap, missed, lost int) {
+	out = []Gap{}
 	grace := time.Duration(graceFactor * float64(interval))
+	if len(checkins) > 0 && checkins[0].seq > 1 {
+		at := checkins[0].at.UTC()
+		n := int(checkins[0].seq) - 1
+		out = append(out, Gap{From: at, To: &at, LostStatements: n})
+		lost += n
+	}
 	for i := 1; i < len(checkins); i++ {
 		a, b := checkins[i-1], checkins[i]
-		if b.Sub(a) > grace {
-			n := int(b.Sub(a)/interval) - 1
-			if n < 1 {
-				n = 1
+		g := Gap{From: a.at.UTC(), LostStatements: int(b.seq) - int(a.seq) - 1}
+		if b.at.Sub(a.at) > grace {
+			g.MissedIntervals = int(b.at.Sub(a.at)/interval) - 1
+			if g.MissedIntervals < 1 {
+				g.MissedIntervals = 1
 			}
-			to := b.UTC()
-			out = append(out, Gap{From: a.UTC(), To: &to, MissedIntervals: n})
-			missed += n
 		}
+		if g.MissedIntervals == 0 && g.LostStatements <= 0 {
+			continue
+		}
+		if g.LostStatements < 0 {
+			g.LostStatements = 0
+		}
+		to := b.at.UTC()
+		g.To = &to
+		out = append(out, g)
+		missed += g.MissedIntervals
+		lost += g.LostStatements
 	}
 	if len(checkins) > 0 {
-		last := checkins[len(checkins)-1]
+		last := checkins[len(checkins)-1].at
 		if now.Sub(last) > grace {
 			n := int(now.Sub(last) / interval)
 			out = append(out, Gap{From: last.UTC(), MissedIntervals: n, Ongoing: true})
 			missed += n
 		}
 	}
-	return out, missed
+	return out, missed, lost
 }
 
 func summarize(st *proof.Statement) *Latest {
@@ -154,6 +176,7 @@ func summarize(st *proof.Statement) *Latest {
 			l.EDRStopped++
 		}
 	}
+	l.EDRTotal, l.EDRTruncated = st.EDRAgentsTotal, st.EDRAgentsTruncated
 	return l
 }
 

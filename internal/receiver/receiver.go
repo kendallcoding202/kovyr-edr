@@ -10,10 +10,10 @@
 // Ingest follows SPEC section 8 and the engine's reference ingest
 // (tlog.Server): nonces are issued for one device, used once and expire
 // after 10 minutes; observed_at must be within 5 minutes of this clock.
-// One deliberate difference: SPEC refuses a seq that is not exactly one
-// more than the last, which would leave a device unable to report ever
-// again after one lost upload. This receiver accepts it and raises a
-// missing_seq tamper signal instead (see docs/api.md).
+// A seq more than one ahead of the last is accepted, as SPEC 8 says: the
+// hole is a lost-statement gap, shown in status (gaps[].lost_statements,
+// lost_statements) and raised once as a missing_seq event, so one lost
+// upload can never lock a device out.
 package receiver
 
 import (
@@ -93,7 +93,7 @@ type device struct {
 	lastDigest proof.Digest
 	lastObs    time.Time
 	lastRecv   time.Time
-	checkins   []time.Time // observed_at of accepted statements, in seq order
+	checkins   []checkin // accepted statements, in seq order
 	latest     *proof.Statement
 	active     map[string]bool
 	events     []Event
@@ -260,7 +260,7 @@ func (r *Receiver) receive(raw []byte, now time.Time, replaying bool) Result {
 	ev := func(kind string, seq uint32, detail string) Event {
 		return Event{At: now.UTC(), Kind: kind, Seq: seq, Detail: detail, Tamper: tamperKinds[kind]}
 	}
-	if err := env.Verify(d.key); err != nil {
+	if err := proof.VerifyEnvelope(env, d.key); err != nil {
 		return refuse(http.StatusBadRequest, d, "bad signature", ev(EvBadSignature, 0, err.Error()))
 	}
 	st, err := proof.ValidateStatement(env.Payload)
@@ -339,11 +339,17 @@ func (r *Receiver) receive(raw []byte, now time.Time, replaying bool) Result {
 	d.haveChain, d.lastSeq, d.lastDigest, d.lastObs, d.lastRecv = true, st.Seq, digest, st.ObservedAt, now
 	d.latest = st
 	d.accepted++
-	d.checkins = append(d.checkins, st.ObservedAt)
+	d.checkins = append(d.checkins, checkin{at: st.ObservedAt, seq: st.Seq})
 	if len(d.checkins) > maxCheckinsPerDev {
 		d.checkins = d.checkins[len(d.checkins)-maxCheckinsPerDev:]
 	}
 	return Result{Status: http.StatusOK, Outcome: "accepted", DeviceID: d.enrolled.DeviceID, Seq: st.Seq, Events: events}
+}
+
+// checkin is one accepted statement, as gap detection needs it.
+type checkin struct {
+	at  time.Time // observed_at
+	seq uint32
 }
 
 func (d *device) add(e Event) {

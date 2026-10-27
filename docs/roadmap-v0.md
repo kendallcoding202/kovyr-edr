@@ -4,7 +4,9 @@ v0 is a read-only Windows agent that reports protection status in signed
 heartbeats, so a missed or tampered check-in raises an alert off the
 machine. It ships in small tickets, each reviewed before merge.
 
-## Ticket 1, part 1 (this branch)
+## Done
+
+### Ticket 1: checks, signed heartbeat, dev receiver, CI (`claude/protection-alarm-v0`)
 
 * Read-only checks behind `checks.Probes`: Windows Security Center, Microsoft
   Defender, known EDR agents, BitLocker on the OS volume, firewall profiles
@@ -23,17 +25,31 @@ machine. It ships in small tickets, each reviewed before merge.
 * CLI: `check`, `keygen`, `enroll --print-pubkey`, `run`.
 * CI on Ubuntu and Windows, including the real Windows checks.
 
+### Ticket 2: one shared proof library and the spec decisions (`claude/proof-engine-vendor`)
+
+* The proof engine is vendored under `proof/` (imported as-is from the
+  website repo at `3a2773b`, then changed in separate commits); this copy
+  and `proof/SPEC.md` are now canonical. The CLI, the website demo
+  generator and the Python/JavaScript implementations stay in the website
+  repo (`proof/README.md`).
+* `internal/proof` uses the vendored canonical JSON, DSSE and ES256 code;
+  the hand port is gone. A golden heartbeat pinned before the swap, and the
+  shared vectors, prove the bytes did not change.
+* SPEC 6.5 standardizes `endpoint/v1` (`protection`, `agent_version`,
+  `sensor_health`), says `tenant` and the seq-1 link come with enrollment,
+  makes `edr.agents` a capped result list, accepts lost uploads as
+  disclosed gaps (ingest, verifier, summary `lost_reports`) and notes
+  TPM-clocked offline records as future work. The agent's builder checks
+  its output against that schema; the dev receiver shows lost statements in
+  status.
+
 ## Next tickets
 
 In rough order. Each one gets its own branch and review.
 
-1. **Vendor the proof engine.** Replace the port in `internal/proof`
-   (canon, sigs, DSSE) with the engine's packages. The statement builder
-   stays behind its interface, and the engine's test vectors already pass
-   here.
-2. **SPEC additions** (with the spec owner): the `endpoint/v1` predicate
-   with `protection` and `agent_version`, and the open questions in
-   `docs/api.md` (tenant, seq 1, lost uploads, offline recording).
+1. ~~**Vendor the proof engine.**~~ Done in Ticket 2.
+2. ~~**SPEC additions.**~~ Done in Ticket 2 (see `docs/api.md`, "Spec
+   decisions").
 3. **Windows service install.** Run as a service (LocalSystem), with an
    install/uninstall command, SCM recovery actions, a clean stop, and logs
    capped in size. Also back off on battery and under load (target under 1%
@@ -63,3 +79,12 @@ In rough order. Each one gets its own branch and review.
   `sensor_health.driver_blocklist_version`.
 * If BitLocker reports `encryption_required` on real machines, query it
   over a packet-privacy WMI connection.
+
+## Follow-ups found in Ticket 2
+
+* Port SPEC 6.5 (`endpoint/v1`) and lost-report gaps to the Python server
+  and the JavaScript verifier in the website repo, or have halden use the
+  Go library. Until then they reject endpoint statements and would fail a
+  pack with a lost report.
+* Signed delivery receipts (SPEC 18), so a verifier can tell a report that
+  never reached the log from one withheld from a pack.

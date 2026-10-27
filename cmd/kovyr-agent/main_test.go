@@ -12,6 +12,7 @@ import (
 	"github.com/kendallcoding202/kovyr-edr/internal/checks"
 	"github.com/kendallcoding202/kovyr-edr/internal/proof"
 	"github.com/kendallcoding202/kovyr-edr/internal/receiver"
+	"github.com/kendallcoding202/kovyr-edr/proof/canon"
 )
 
 func runCLI(t *testing.T, args ...string) (int, string, string) {
@@ -47,7 +48,7 @@ func TestCheckPrintsATableAndAValidStatement(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &v); err != nil {
 		t.Fatalf("--json output is not JSON: %v", err)
 	}
-	b, _ := proof.EncodeCanonical(toCanon(v))
+	b, _ := canon.Encode(toCanon(v))
 	if _, err := proof.ValidateStatement(b); err != nil {
 		t.Fatalf("printed statement does not validate: %v", err)
 	}

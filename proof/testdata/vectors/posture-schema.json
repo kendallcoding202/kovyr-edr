@@ -993,20 +993,36 @@
              "check_id": {
               "t": "enum",
               "values": [
+               "BREACH-00",
                "BREACH-01",
                "BREACH-02",
+               "BREACH-03",
+               "BREACH-04",
+               "CT-00",
+               "CT-01",
                "DNS-01",
+               "DNS-02",
                "EMAIL-01",
                "EMAIL-02",
                "EMAIL-03",
                "EMAIL-04",
                "EMAIL-05",
+               "EMAIL-06",
+               "EMAIL-07",
+               "EMAIL-08",
+               "EMAIL-09",
+               "EMAIL-10",
                "HTTP-01",
                "HTTP-02",
                "HTTP-03",
                "TLS-01",
                "TLS-02",
-               "TLS-03"
+               "TLS-03",
+               "WEB-00",
+               "WEB-01",
+               "WEB-02",
+               "WEB-03",
+               "WEB-04"
               ]
              },
              "severity": {

@@ -312,3 +312,35 @@ func TestScanStatements(t *testing.T) {
 		t.Fatal("domain field accepted")
 	}
 }
+
+// TestProductionScanCatalog: what the production scanner (halden) actually
+// reports, one outcome per test (SPEC 6.2), validates; an ID outside the
+// catalog does not.
+func TestProductionScanCatalog(t *testing.T) {
+	tenant, _ := testKeys(t)
+	cs, _ := sigs.GenerateKey(sigs.Ed25519)
+	svc, _ := sigs.NewSigner(cs)
+	h := header(tenant, svc)
+	h.Kind = ExternalScanner
+	r := ScanResults{Results: []ScanResult{
+		{"EMAIL-03", "pass", "info"}, {"EMAIL-05", "warn", "medium"}, {"EMAIL-07", "pass", "info"},
+		{"EMAIL-10", "fail", "high"}, {"CT-01", "pass", "info"}, {"BREACH-00", "error", "info"},
+		{"DNS-02", "not_applicable", "info"}, {"WEB-02", "warn", "low"}, {"WEB-04", "warn", "low"},
+	}}
+	payload, err := BuildScan(h, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := Validate(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := st.Int("scan.results.total"); n != 9 {
+		t.Fatalf("total = %d, want 9", n)
+	}
+	for _, id := range []ScanCheck{"WEB-05", "EMAIL-11", "CT-02", "web-01"} {
+		if _, err := BuildScan(h, ScanResults{Results: []ScanResult{{id, "pass", "info"}}}); err == nil {
+			t.Errorf("check ID %s outside the catalog accepted", id)
+		}
+	}
+}

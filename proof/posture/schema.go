@@ -117,8 +117,14 @@ var (
 	deviceClassVals     = []string{"desktop", "laptop", "not_a_device", "server"}
 	platformVals        = []string{"macos", "microsoft_365", "mobile_app", "vendor_service", "windows"}
 	// Stable IDs of the external checks the vendor's scanner runs against
-	// a firm's own domain. New checks get new IDs; IDs are never reused.
-	scanCheckIDs   = []string{"BREACH-01", "BREACH-02", "DNS-01", "EMAIL-01", "EMAIL-02", "EMAIL-03", "EMAIL-04", "EMAIL-05", "HTTP-01", "HTTP-02", "HTTP-03", "TLS-01", "TLS-02", "TLS-03"}
+	// a firm's own domain: the production scanner's catalog (SPEC 6.2),
+	// plus the prototype TLS-xx and HTTP-xx IDs that only sample data uses.
+	// New checks get new IDs; IDs are never reused.
+	scanCheckIDs = []string{
+		"BREACH-00", "BREACH-01", "BREACH-02", "BREACH-03", "BREACH-04", "CT-00", "CT-01", "DNS-01", "DNS-02",
+		"EMAIL-01", "EMAIL-02", "EMAIL-03", "EMAIL-04", "EMAIL-05", "EMAIL-06", "EMAIL-07", "EMAIL-08", "EMAIL-09", "EMAIL-10",
+		"HTTP-01", "HTTP-02", "HTTP-03", "TLS-01", "TLS-02", "TLS-03", "WEB-00", "WEB-01", "WEB-02", "WEB-03", "WEB-04",
+	}
 	scanStatusVals = []string{"error", "fail", "not_applicable", "pass", "warn"}
 	severityVals   = []string{"critical", "high", "info", "low", "medium"}
 	staffRoleVals  = []string{"bookkeeper", "none", "office_manager", "owner"}

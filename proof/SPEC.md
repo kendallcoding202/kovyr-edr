@@ -16,8 +16,8 @@ follow it and agree on the shared test vectors:
 The Go engine moved into `kovyr-edr/proof/` (imported from the website repo
 at commit `3a2773b`); that copy and this file are now canonical. The
 Python and JavaScript implementations follow this specification as it was
-at the import. They do not yet implement the `endpoint/v1` predicate (6.5)
-or lost-report gaps (8, 13).
+at the import. They do not yet implement the `endpoint/v1` predicate (6.5),
+lost-report gaps (8, 13) or the production scanner's check IDs (6.2).
 
 Normative data files: `proof/testdata/vectors/posture-schema.json` (the
 statement schema, generated from `proof/posture/schema.go`) and the test
@@ -241,9 +241,52 @@ named; the tenant is.
 |---|---|
 | `source` | enum `external_scan` |
 | `results` | result list (max 32), sorted by `check_id`, of `{check_id, status, severity}` |
-| `results.items[].check_id` | enum of stable IDs: `EMAIL-01` … `EMAIL-05`, `TLS-01` … `TLS-03`, `HTTP-01` … `HTTP-03`, `DNS-01`, `BREACH-01`, `BREACH-02`. IDs are never reused; new checks get new IDs. |
+| `results.items[].check_id` | enum of stable IDs from the scanner's check catalog (table below). IDs are never reused; new checks get new IDs. |
 | `results.items[].status` | enum `pass`, `warn`, `fail`, `error`, `not_applicable` |
 | `results.items[].severity` | enum `info`, `low`, `medium`, `high`, `critical` |
+
+The check IDs are the catalog of the vendor's production scanner (halden's
+`checks` table). Most name an *outcome*, not a test: one test, for example
+SPF, reports exactly one of its outcome IDs per scan (EMAIL-01, -02, -03 or
+-09), sometimes with a second (EMAIL-10). So a statement lists the outcomes
+the scan found, and `total` is the number of results the scan produced. A
+scanner never leaves a result out because the enum lacks its ID: the ID is
+added here first.
+
+| ID | The scan found |
+|---|---|
+| `DNS-01` | the domain has no A or AAAA record |
+| `DNS-02` | the domain has no MX record |
+| `EMAIL-01` | no SPF record |
+| `EMAIL-02` | an SPF policy that does not restrict senders |
+| `EMAIL-03` | a restrictive SPF record (`-all` or `~all`) |
+| `EMAIL-04` | no usable DMARC record (none, or several, which receivers ignore) |
+| `EMAIL-05` | DMARC published but not enforced (`p=none`, or a policy that acts on no mail) |
+| `EMAIL-06` | DMARC enforced (`quarantine` or `reject`), possibly on only part of the mail |
+| `EMAIL-07` | DKIM published on at least one common selector |
+| `EMAIL-08` | no DKIM record on the common selectors probed |
+| `EMAIL-09` | several SPF records, so receivers ignore SPF |
+| `EMAIL-10` | an SPF record that needs more than 10 DNS lookups, so receivers treat it as failed |
+| `CT-00` | the Certificate Transparency lookup could not be completed |
+| `CT-01` | subdomains named in Certificate Transparency logs |
+| `BREACH-00` | the breach-exposure check was not run, or could not reach the breach service |
+| `BREACH-01` | the breach service's domain search answered: `fail` if accounts on the domain are in known breaches, `pass` if none are |
+| `BREACH-02` | the breach service found no accounts on the domain |
+| `BREACH-03` | the breach service refused the search: domain ownership is not verified there |
+| `BREACH-04` | the breach service gave an unexpected answer |
+| `WEB-00` | the website could not be reached over HTTPS |
+| `WEB-01` | the website's TLS certificate failed validation |
+| `WEB-02` | some of the checked HTTP security headers are missing |
+| `WEB-03` | all of the checked HTTP security headers are present |
+| `WEB-04` | response headers disclose software versions |
+| `TLS-01` … `TLS-03`, `HTTP-01` … `HTTP-03` | prototype IDs, used only in sample data and test vectors. The production scanner reports TLS and HTTP header results as `WEB-xx`. Kept because IDs are never reused. |
+
+`status` is the scanner's verdict on that result: `pass` (checked, nothing to
+fix), `warn` (a weakness worth fixing), `fail` (a serious problem: missing or
+broken), `error` (the check could not be completed, so it says nothing either
+way) or `not_applicable` (the domain has nothing for the check to look at).
+`severity` is the scanner's rating of the result; it is `info` for `pass`,
+`error` and `not_applicable`.
 
 **`staff_event`** (a person's signed record). Strength: *staff-attested*.
 `kind` is `verify_before_pay` or `backup_restore_drill`, with the matching

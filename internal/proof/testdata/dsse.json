@@ -1,0 +1,48 @@
+{
+  "must_reject": [
+    {
+      "name": "ES256 high-S twin (r, n-s)",
+      "sig": "wz6+aQ6/TRUOzc4bOz0I3opNA4KHdJd/Vb5DzaCta2HaQDQpcKnN5EIBEyGq8FaFUN7vLmBlnnw4wYrnHlzsBQ==",
+      "spki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEF5Wsw8JNnvTA0EYYxgYvH7prkocBlNSjoND5hH0r8d5a5+58KcZ8tkeOmxkxjfFjXZB6ubwrqRyxytBIYXdzxg==",
+      "why": "high S is rejected so each statement has one signature encoding"
+    },
+    {
+      "name": "ES256 signature in DER",
+      "sig": "MEUCIQDDPr5pDr9NFQ7Nzhs7PQjeik0Dgod0l39VvkPNoK1rYQIgJb/L1Y9WMhy9/uzeVQ+pemwIC39GsgAIuvg/294GOUw=",
+      "spki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEF5Wsw8JNnvTA0EYYxgYvH7prkocBlNSjoND5hH0r8d5a5+58KcZ8tkeOmxkxjfFjXZB6ubwrqRyxytBIYXdzxg==",
+      "why": "envelopes carry IEEE P1363 r||s; convert DER before signing"
+    },
+    {
+      "name": "ES256 corrupted",
+      "sig": "wz6+aQ6/TRUOzc8bOz0I3opNA4KHdJd/Vb5DzaCta2Elv8vVj1YyHL3+7N5VD6l6bAgLf0ayAAi6+D/b3gY5TA==",
+      "spki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEF5Wsw8JNnvTA0EYYxgYvH7prkocBlNSjoND5hH0r8d5a5+58KcZ8tkeOmxkxjfFjXZB6ubwrqRyxytBIYXdzxg==",
+      "why": "does not verify"
+    }
+  ],
+  "notes": "ES256 signs SHA-256(PAE) and encodes r||s big-endian (64 bytes) with s <= n/2. keyid = hex(SHA-256(SPKI DER)).",
+  "pae_hex": "445353457631203238206170706c69636174696f6e2f766e642e696e2d746f746f2b6a736f6e203137207b2268656c6c6f223a22776f726c64227d",
+  "payload": "eyJoZWxsbyI6IndvcmxkIn0=",
+  "payload_type": "application/vnd.in-toto+json",
+  "signatures": [
+    {
+      "envelope_canonical": "{\"payload\":\"eyJoZWxsbyI6IndvcmxkIn0=\",\"payloadType\":\"application/vnd.in-toto+json\",\"signatures\":[{\"keyid\":\"f038a60d985636e3be772791540eac1915664da2e8ea01a24065b98469541c21\",\"sig\":\"OPjRMxKjQ2FjnsaTJHG25gbxW57VODY5F/6T1gvUE6uRsVB3ONf0ktr2pBA807zjRH6nuA1TbeuVQPlUPEVZAw==\"}]}",
+      "key": {
+        "alg": "ed25519",
+        "keyid": "f038a60d985636e3be772791540eac1915664da2e8ea01a24065b98469541c21",
+        "pkcs8": "MC4CAQAwBQYDK2VwBCIEIFFFlZE1WkMdEANyE7lkki0ZoxTGN7JEneKXL/RdYOzU",
+        "spki": "MCowBQYDK2VwAyEADS4VReaM3T5F8wZDbR9e0fPgG9yDsQCJfRaDOw6ETxc="
+      },
+      "sig": "OPjRMxKjQ2FjnsaTJHG25gbxW57VODY5F/6T1gvUE6uRsVB3ONf0ktr2pBA807zjRH6nuA1TbeuVQPlUPEVZAw=="
+    },
+    {
+      "envelope_canonical": "{\"payload\":\"eyJoZWxsbyI6IndvcmxkIn0=\",\"payloadType\":\"application/vnd.in-toto+json\",\"signatures\":[{\"keyid\":\"3c889521b3e2bf0bbe96261453da07517ba9302c43c798b71e7b149b9b416623\",\"sig\":\"wz6+aQ6/TRUOzc4bOz0I3opNA4KHdJd/Vb5DzaCta2Elv8vVj1YyHL3+7N5VD6l6bAgLf0ayAAi6+D/b3gY5TA==\"}]}",
+      "key": {
+        "alg": "ecdsa-p256-sha256",
+        "keyid": "3c889521b3e2bf0bbe96261453da07517ba9302c43c798b71e7b149b9b416623",
+        "pkcs8": "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgwi/6bcywuqWvph10Su0Gv1lU/enuXDnWSz1K1x5A5WyhRANCAAQXlazDwk2e9MDQRhjGBi8fumuShwGU1KOg0PmEfSvx3lrn7nwpxny2R46bGTGN8WNdkHq5vCupHLHK0Ehhd3PG",
+        "spki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEF5Wsw8JNnvTA0EYYxgYvH7prkocBlNSjoND5hH0r8d5a5+58KcZ8tkeOmxkxjfFjXZB6ubwrqRyxytBIYXdzxg=="
+      },
+      "sig": "wz6+aQ6/TRUOzc4bOz0I3opNA4KHdJd/Vb5DzaCta2Elv8vVj1YyHL3+7N5VD6l6bAgLf0ayAAi6+D/b3gY5TA=="
+    }
+  ]
+}

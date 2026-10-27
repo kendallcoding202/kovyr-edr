@@ -1,0 +1,55 @@
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      # Use the Go that setup-go installs from go.mod; never auto-download
+      # another toolchain.
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v6
+
+      # Installs exactly the go directive's version (1.24.7).
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test ./...
+
+      - name: go test -race
+        if: runner.os == 'Linux'
+        run: go test -race ./...
+
+      - name: Build Windows binaries
+        shell: bash
+        env:
+          GOOS: windows
+          GOARCH: amd64
+        run: go build -o dist/ ./cmd/kovyr-agent ./cmd/kovyr-receiver-dev
+
+      - name: Real Windows checks and DPAPI key store (integration)
+        if: runner.os == 'Windows'
+        run: go test -count=1 -v -run "TestRealWindowsChecks|TestDPAPI|TestKeyFileHoldsNoPlainKey|TestGenerateLoadRoundTrip" ./internal/checks/ ./internal/keystore/
+
+      - name: kovyr-agent check on this runner
+        if: runner.os == 'Windows'
+        shell: bash
+        run: ./dist/kovyr-agent.exe check --state-dir "$RUNNER_TEMP/kovyr-state"

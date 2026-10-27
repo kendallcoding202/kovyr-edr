@@ -1,0 +1,5 @@
+# build output
+/dist/
+# dev receiver files (local only)
+kovyr-receiver-dev.jsonl
+devices.json

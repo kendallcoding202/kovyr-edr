@@ -10,6 +10,7 @@
 //	kovyr-agent run     --server URL [--interval 15m] [--dev-insecure] [--once] [--usage]
 //	                    [--watch DIR]... [--no-user-folders] [--state-dir DIR]
 //	kovyr-agent service install|uninstall|start|stop|status (Windows)
+//	kovyr-agent version
 package main
 
 import (
@@ -46,6 +47,7 @@ Commands:
   enroll --print-pubkey  print the public key to enroll this device (enrollment is a stub in v0)
   run --server URL       send a signed heartbeat every interval (in this console)
   service ...            install and control the Windows service (kovyr-agent service for help)
+  version                print the agent version
 
 Common flag: --state-dir DIR (default %s)
 `
@@ -62,8 +64,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	cmd, rest := args[0], args[1:]
-	if cmd == "service" {
+	switch cmd {
+	case "service":
 		return cmdService(rest, defDir, stdout, stderr)
+	case "version":
+		// The installer build reads this for the MSI's ProductVersion.
+		v := agent.Version
+		fmt.Fprintf(stdout, "%d.%d.%d\n", v.Major, v.Minor, v.Patch)
+		return 0
 	}
 	fs := flag.NewFlagSet("kovyr-agent "+cmd, flag.ContinueOnError)
 	fs.SetOutput(stderr)

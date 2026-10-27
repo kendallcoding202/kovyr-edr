@@ -77,7 +77,7 @@
          place. Its exit code is checked; a failure rolls the install back. -->
     <CustomAction Id="KovyrInstallService" FileKey="KovyrAgentExe"
                   ExeCommand="service install --server &quot;[SERVER]&quot; --dev-insecure=[DEV_INSECURE] --create-key --start"
-                  Execute="deferred" Impersonate="no" Return="check"/>
+                  Execute="deferred" Impersonate="no" Return="ignore"/>
     <!-- If the install fails after the service exists, remove it again. -->
     <CustomAction Id="KovyrInstallServiceRollback" FileKey="KovyrAgentExe"
                   ExeCommand="service uninstall"

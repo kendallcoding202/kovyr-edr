@@ -192,7 +192,7 @@ func startReceiver(exe, work, addr string, interval time.Duration) (*receiver, e
 	}
 	r := &receiver{cmd: cmd, addr: addr}
 	for i := 0; i < 50; i++ {
-		if _, err := r.status(); err == nil {
+		if r.up() {
 			return r, nil
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -202,6 +202,16 @@ func startReceiver(exe, work, addr string, interval time.Duration) (*receiver, e
 }
 
 func (r *receiver) stop() { r.cmd.Process.Kill(); r.cmd.Wait() }
+
+// up reports whether the receiver answers, enrolled devices or not.
+func (r *receiver) up() bool {
+	resp, err := http.Get("http://" + r.addr + "/v0/status")
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
 
 func (r *receiver) status() (devStatus, error) {
 	resp, err := http.Get("http://" + r.addr + "/v0/status")

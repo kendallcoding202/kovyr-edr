@@ -2,8 +2,8 @@
 
 This guide walks you through installing the Kovyr Protection Alarm on a test
 Windows computer and setting off each of its alerts on purpose, so you see
-exactly what a customer would see. It takes about an hour, plus one
-overnight wait for the last test.
+exactly what a customer would see. It takes about an hour, plus an
+overnight (or full-day) wait for the last test.
 
 **Only use a test computer:** a Windows virtual machine (VM) on your Mac, or
 a spare PC with no client files on it. Never a customer's computer.
@@ -107,11 +107,13 @@ Check it:
 .\status.ps1
 ```
 
-The first line should end in **running**. Lower down, the log will say
+Under "Kovyr Protection Alarm service" it should say
+`Kovyr Protection Alarm (KovyrAgent): running`. Lower down, the log will say
 `challenge: HTTP 403` a few times. That is normal: Kovyr refuses the
 computer until you enroll it in step 6.
 
-Optional: compare the installer's fingerprint with `SHA256SUMS`:
+Optional: compare the installer's fingerprint with `SHA256SUMS` (capital
+letters don't matter):
 
 ```powershell
 Get-FileHash .\kovyr-protection-alarm-x64.msi
@@ -280,9 +282,10 @@ To stop the agent, either:
 
 What you should see: about 25 minutes after the missed check-in, the admin
 page marks the computer **silent**, with an open **Silent** episode (never
-emailed on its own). The next 7 am digest, subject **"Protection Alarm: 1 thing to check at Kovyr
-Test Office"** (the number counts everything it lists), names the computer
-under "Computers that have gone quiet" with its last check-in time.
+emailed on its own). The next 7 am digest, subject **"Protection Alarm: 1
+thing to check at Kovyr Test Office"** (the number counts everything it
+lists), names the computer under "Computers that have gone quiet" with its
+last check-in time.
 
 Leave the computer off until the digest has arrived: if it checks in first,
 it is no longer silent. Afterwards, start the VM again, or run:
@@ -326,8 +329,9 @@ start with a time in UTC.
 
 ### No check-ins on the admin page
 
-* **Is the service running?** The first line of `status.ps1` should end in
-  `running`. If it says `stopped`, run `.\check-in-now.ps1`.
+* **Is the service running?** `status.ps1` should show
+  `Kovyr Protection Alarm (KovyrAgent): running`. If it says `stopped`, run
+  `.\check-in-now.ps1`.
 * **Is `AGENT_VERIFY_ENABLED` set to `1`** on the Railway worker? Without
   it, the page keeps saying "waiting".
 * **Did you just enroll?** After a refusal, the agent waits longer between
@@ -372,9 +376,11 @@ Log lines with `dial tcp`, `no such host`, `i/o timeout`, `proxyconnect` or
   hotels).
 * Test on your home network. A VM's default network setting ("shared" or
   "NAT") works.
-* Check that this opens in the test computer's browser and shows a
-  "forbidden" error (that is the right answer for an unknown device):
-  `https://agent.kovyr.com/api/agent/v0/challenge?device=dev_0000000000000000`
+* Open this in the test computer's browser:
+  `https://agent.kovyr.com/api/agent/v0/challenge?device=dev_0000000000000000`.
+  A short `{"error": ...}` message means the network path works (that
+  made-up device is refused, as it should be). A browser error page means
+  it does not.
 
 ### The installer stops with an error
 

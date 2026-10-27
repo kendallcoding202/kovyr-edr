@@ -3,9 +3,11 @@
 This is the one small API between the Kovyr endpoint agent and the service
 that receives its heartbeats.
 
-* **Production:** the receiver is part of Kovyr's **halden** service. halden
-  receives heartbeats, finds gaps, sends the owner's alerts and keeps the
-  proof log.
+* **Production:** the receiver is part of Kovyr's **halden** service, at
+  `https://agent.kovyr.com/api/agent`. halden receives heartbeats, finds
+  gaps and sends the owner's alerts and digest. Its routes store each
+  heartbeat and answer `202` ("received, verification pending"); a worker
+  verifies it within about a minute and records any refusal itself.
 * **Development:** `cmd/kovyr-receiver-dev` implements the same API for
   local testing only (in-memory state plus a JSON-lines file, no auth on
   `/v0/status`, no rate limits). Do not expose it to a network.
@@ -92,7 +94,7 @@ at most 16 KiB):
 
 | Status | Meaning | Agent does |
 |---|---|---|
-| `200`, `202` | accepted (or an exact re-delivery of the latest statement) | removes it from its queue |
+| `200`, `202` | accepted (or an exact re-delivery of the latest statement). `202` means "received, verification pending": halden stores the envelope and verifies it later, so a statement it then refuses also got a `202` | removes it from its queue |
 | `400`, `409`, `413`, `422` | refused for good: malformed, bad signature, invalid statement, replayed seq or nonce, unknown/expired/misdirected nonce, stale or future timestamp | drops it (the receiver keeps its own record) |
 | `401`, `403`, `404`, `429`, `5xx`, anything else | not now | keeps it queued; retries with exponential backoff and jitter, oldest first |
 

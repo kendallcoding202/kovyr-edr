@@ -5,7 +5,55 @@ Alarm"). It stays read-only: it changes no setting, runs no command and
 accepts nothing from the network but a nonce and a status code
 (`docs/api.md`).
 
-## Install
+## Install with the MSI
+
+`kovyr-protection-alarm-x64.msi` (built on Linux by `installer/build-msi.sh`
+with wixl from msitools; CI publishes it in the
+`kovyr-protection-alarm-test-kit` artifact) does everything below in one
+step. Testing it on your own PC: `docs/testing-on-your-pc.md`.
+
+```bat
+msiexec /i kovyr-protection-alarm-x64.msi /qn            (or double-click it)
+msiexec /x kovyr-protection-alarm-x64.msi /qn            (uninstall)
+```
+
+* It puts `kovyr-agent.exe` in `C:\Program Files\Kovyr\`, then runs, as
+  SYSTEM, `kovyr-agent service install --server "[SERVER]" --create-key
+  --start`: the code below, with a device key made if there is none (an
+  existing key is always kept, and one that cannot be opened stops the
+  install) and the service started (and removed again if it does not
+  start). If that step fails, the whole install rolls back. Its output is
+  not shown, so it also writes each step to the agent log (`service
+  install:` lines).
+* `SERVER` defaults to `https://agent.kovyr.com/api/agent`.
+  `DEV_INSECURE=1` allows plain http to localhost (CI and development).
+  Set them from an elevated prompt:
+  `msiexec /i kovyr-protection-alarm-x64.msi SERVER=https://... /qn`.
+* Uninstalling stops and deletes the service (Windows Installer's
+  ServiceControl) and removes the binary and its folder. **The state
+  directory `C:\ProgramData\Kovyr` is kept** (device key, chain state,
+  settings, logs), so a reinstall is the same device with the same
+  enrollment, and its chain continues. To remove it, delete the folder by
+  hand after uninstalling and revoke the device on the admin page; the
+  next install is then a new device.
+* A newer build, or a rebuild of the same version, upgrades in place:
+  the old product (and its service) is removed first, keeping the key.
+* It refuses to install over a service set up by hand, and says how to
+  remove that first.
+* x64 only; it runs on Windows on ARM under emulation (untested there).
+  It is not code-signed yet, so SmartScreen warns and Smart App Control
+  blocks it.
+
+CI (`installer-test` on `windows-latest`) checks that an install with a bad
+server URL rolls back completely, then installs it silently against the
+dev receiver and checks the binary, service, settings and state directory
+ACL. It runs the test kit's scripts (including the ransomware test)
+against the installed service, installs a second build over it (same
+device, chain continues), uninstalls (key kept), reinstalls (same device)
+and uninstalls again, and checks that it refuses to install over a
+service set up by hand and leaves that service alone.
+
+## Install by hand
 
 From an elevated prompt ("Run as administrator"):
 
@@ -39,6 +87,11 @@ What it sets up:
 | Recovery | restart after 1 minute, then 5, then 15; the count resets after a day; also when the service exits with an error code |
 | Command line | `"C:\Program Files\Kovyr\kovyr-agent.exe" service run --state-dir "C:\ProgramData\Kovyr"` (quoted, so spaces are safe) |
 | Service SID | unrestricted (`NT SERVICE\KovyrAgent`), so ACLs can name it later |
+
+`service install` also refuses an already installed service (before it
+writes anything). `--create-key` makes the device key if there is none and
+never replaces one; `--start` starts the service and removes it again if
+it does not start. The MSI uses both.
 
 `service uninstall` stops and removes the service. It keeps the state
 directory (device key, chain state, queue, settings and logs), because a
@@ -151,7 +204,7 @@ edition, no battery. Real machines are the next measurement.
 * Restrict the service's privileges (`SERVICE_CONFIG_REQUIRED_PRIVILEGES_INFO`)
   to what the checks need; it needs testing on real machines first, since
   WMI and BitLocker queries might need more than expected.
-* An installer (MSI) that puts the binary in Program Files and runs
-  install, so nobody has to copy it by hand.
+* Code-sign the MSI and the binary, so SmartScreen and Smart App Control
+  accept them.
 * A signed "sensor stopping" heartbeat on a clean stop, so the receiver can
   tell a stop from a cut cable.

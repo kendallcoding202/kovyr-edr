@@ -79,6 +79,36 @@ machine. It ships in small tickets, each reviewed before merge.
   in a temporary folder and checks that the tripwire statement reaches the
   receiver, and that no statement or log line names a file.
 
+### The halden receiver (next ticket 5, done in the halden repo)
+
+* Production `/v0` endpoints at `https://agent.kovyr.com/api/agent`
+  (challenge and heartbeat; a heartbeat is answered `202`, "received,
+  verification pending").
+* A verifier worker (`agent-verify`, Railway, behind
+  `AGENT_VERIFY_ENABLED=1`): signature, schema, nonce, clock and chain
+  checks, gaps and alert episodes.
+* Owner alert emails (behind `AGENT_ALERTS_ENABLED=1`): possible
+  ransomware at once, protection off after two verified statements in a
+  row, and a 7am Mountain-time digest of silent computers and other open
+  problems.
+* An operator enrollment page (`/admin/<orgId>/agents`): paste
+  `kovyr-agent enroll --print-pubkey`, revoke and re-activate.
+* Not done yet: logging statements to the public proof log, an alert when
+  a new key replaces a silent device, and SPEC 6.3 enrollment codes (still
+  next ticket 4 here).
+
+### Installer and test kit (`claude/installer-test-kit`)
+
+* `kovyr-protection-alarm-x64.msi`, built on Linux with wixl
+  (`installer/`): binary in Program Files, the agent's own `service
+  install --create-key --start` as SYSTEM, clean uninstall that keeps the
+  device key (`docs/windows-service.md`).
+* CI builds it on Ubuntu and installs, checks, uninstalls and reinstalls
+  it on `windows-latest`, running the test kit against the installed
+  service. windows/arm64 is compiled but not shipped or tested.
+* A test kit for trying the alarm on your own PC or VM:
+  `docs/testing-on-your-pc.md` and `scripts/test/`.
+
 ## Next tickets
 
 In rough order. Each one gets its own branch and review.
@@ -90,9 +120,9 @@ In rough order. Each one gets its own branch and review.
 4. **Enrollment.** Tenant key, SPEC 6.3 attester enrollment records (tenant
    then device signature), single-use expiring enrollment codes,
    `device_number`, and seq 1 linked to the enrollment payload.
-5. **halden receiver.** The production `/v0` endpoints, gap alerts by email,
-   the owner digest, logging to the proof log, and an alert when a new key
-   replaces a silent device.
+5. ~~**halden receiver.**~~ Done in halden (see "The halden receiver" above), except
+   logging to the proof log and an alert when a new key replaces a silent
+   device.
 6. ~~**Tripwire.**~~ Done in Ticket 4, without decoy files (a founder
    decision: see `docs/tripwire.md`).
 7. **Signed updater.** Updates are a code-execution channel: signed and
@@ -134,8 +164,8 @@ In rough order. Each one gets its own branch and review.
   EDR installed; CI runners are Windows Server without one.
 * Restrict the service's privileges to what the checks need, after testing
   WMI and BitLocker queries with the reduced set.
-* An installer (MSI) that places the binary in Program Files and installs
-  the service.
+* ~~An installer (MSI) that places the binary in Program Files and installs
+  the service.~~ Done on `claude/installer-test-kit`.
 * A signed "sensor stopping" heartbeat on a clean stop.
 
 ## Follow-ups found in Ticket 2

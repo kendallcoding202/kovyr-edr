@@ -39,7 +39,6 @@ need() { # table, fixed string that must appear in it
 need CustomAction 'service install --server "[SERVER]" --dev-insecure=[DEV_INSECURE] --create-key --start'
 need ServiceControl KovyrAgent
 need Upgrade 76817CD3-D389-4C31-B3EF-78D8DF5D7572
-need LaunchCondition KOVYR_SERVICE_PRESENT
 need InstallExecuteSequence $'RemoveExistingProducts\t\t1401'
 need InstallExecuteSequence $'KovyrInstallService\tNOT Installed\t6502'
 

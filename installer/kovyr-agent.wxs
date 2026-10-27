@@ -56,7 +56,6 @@
       <RegistrySearch Id="KovyrServiceSearch" Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\KovyrAgent"
                       Name="ImagePath" Type="raw"/>
     </Property>
-    <Condition Message="The Kovyr Protection Alarm service is already installed, but not by this installer. Remove it first: in an administrator prompt run &quot;C:\Program Files\Kovyr\kovyr-agent.exe&quot; service uninstall, then run this installer again.">Installed OR NOT KOVYR_SERVICE_PRESENT OR WIX_UPGRADE_DETECTED OR WIX_SAME_VERSION_UPGRADE_DETECTED</Condition>
 
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFiles64Folder">

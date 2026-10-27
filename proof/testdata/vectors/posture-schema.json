@@ -394,6 +394,24 @@
        "t": "hex",
        "len": 64
       },
+      "schedule": {
+       "t": "object",
+       "fields": {
+        "deferred_s": {
+         "t": "int",
+         "min": 0,
+         "max": 3600
+        },
+        "heavy_checks_skipped": {
+         "t": "bool"
+        },
+        "interval_s": {
+         "t": "int",
+         "min": 60,
+         "max": 3600
+        }
+       }
+      },
       "sensor_health": {
        "t": "object",
        "fields": {

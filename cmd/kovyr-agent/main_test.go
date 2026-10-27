@@ -114,8 +114,12 @@ func TestKeygenEnrollRunOnce(t *testing.T) {
 		t.Fatalf("plain http without --dev-insecure: exit %d %s", code, errs)
 	}
 	for i := 0; i < 2; i++ {
-		if code, _, errs := runCLI(t, "run", "--server", srv.URL, "--dev-insecure", "--state-dir", dir, "--once"); code != 0 {
+		code, _, errs := runCLI(t, "run", "--server", srv.URL, "--dev-insecure", "--state-dir", dir, "--once", "--usage")
+		if code != 0 {
 			t.Fatalf("run --once exit %d: %s", code, errs)
+		}
+		if !strings.Contains(errs, "kovyr-agent usage: cpu_ms=") {
+			t.Fatalf("--usage printed nothing: %s", errs)
 		}
 	}
 	st := r.Status().Devices[0]

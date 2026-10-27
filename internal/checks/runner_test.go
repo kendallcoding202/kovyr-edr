@@ -1,6 +1,7 @@
 package checks
 
 import (
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -121,7 +122,7 @@ func TestRunnerErrorsAreUnknownNotFatal(t *testing.T) {
 	// And the all-unknown result still builds a valid statement.
 	k, _ := proof.GenerateSoftwareKey()
 	s, _ := proof.NewSoftwareSigner(k)
-	h := proof.Header{Seq: 1, ObservedAt: time.Now()}
+	h := proof.Header{Seq: 1, ObservedAt: time.Now(), Schedule: proof.Schedule{IntervalS: 900}}
 	h.Nonce[0], h.Salt[0] = 1, 1
 	if _, err := proof.BuildStatement(s.Public(), h, proof.SensorHealth{SensorRunning: true}, got); err != nil {
 		t.Fatalf("unknown readings do not build: %v", err)
@@ -137,9 +138,39 @@ func TestSystemProbesNeverFailTheRun(t *testing.T) {
 	}
 	k, _ := proof.GenerateSoftwareKey()
 	s, _ := proof.NewSoftwareSigner(k)
-	h := proof.Header{Seq: 1, ObservedAt: time.Now()}
+	h := proof.Header{Seq: 1, ObservedAt: time.Now(), Schedule: proof.Schedule{IntervalS: 900}}
 	h.Nonce[0], h.Salt[0] = 1, 1
 	if _, err := proof.BuildStatement(s.Public(), h, proof.SensorHealth{SensorRunning: true}, got); err != nil {
 		t.Fatalf("system readings do not build: %v (%+v)", err, got)
+	}
+}
+
+func TestRunnerSkipsOnlyHeavyChecks(t *testing.T) {
+	if got := HeavyChecks(); len(got) != 2 || got[0] != "bitlocker" || got[1] != "memory_integrity" {
+		t.Fatalf("heavy checks %v", got)
+	}
+	ran := map[string]bool{}
+	var mu sync.Mutex
+	f := HealthyFake()
+	f.Hook = func(probe string) { mu.Lock(); ran[probe] = true; mu.Unlock() }
+	got, reps := NewRunner(f).RunWith(RunOptions{SkipHeavy: true})
+	oc := outcomes(reps)
+	for _, name := range CheckNames() {
+		heavy := name == "bitlocker" || name == "memory_integrity"
+		if heavy && (oc[name] != OutcomeSkipped || ran[name]) {
+			t.Errorf("%s: outcome %s, probed %v; want skipped without probing", name, oc[name], ran[name])
+		}
+		if !heavy && oc[name] != OutcomeOK {
+			t.Errorf("%s: outcome %s, want ok", name, oc[name])
+		}
+	}
+	if got.BitLocker != proof.VolumeUnknown || got.MemoryIntegrity != proof.ToggleUnknown {
+		t.Errorf("skipped checks must read unknown: %+v", got)
+	}
+	if got.Defender.RealTime != proof.ToggleOn || got.FirewallProfilesOn != 3 {
+		t.Errorf("light checks did not run: %+v", got)
+	}
+	if len(reps) != len(CheckNames()) {
+		t.Errorf("%d reports for %d checks", len(reps), len(CheckNames()))
 	}
 }

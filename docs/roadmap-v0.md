@@ -43,6 +43,21 @@ machine. It ships in small tickets, each reviewed before merge.
   its output against that schema; the dev receiver shows lost statements in
   status.
 
+### Ticket 3: the Windows service (`claude/windows-service`)
+
+* `kovyr-agent service install|uninstall|start|stop|status` on x/sys
+  `svc` and `svc/mgr`: LocalSystem, automatic delayed start, recovery
+  (1, 5, 15 minutes; also on error exits), a 3-second clean stop, admin
+  and Program Files checks. See `docs/windows-service.md`.
+* Back-off behind `internal/sysload` (fakeable): interval x2 and heavy
+  checks skipped on battery, heartbeats deferred (never skipped) while the
+  processor is busy. SPEC 6.5 gains `schedule`, so receivers judge silence
+  against the announced interval.
+* A validated settings file with safe defaults, and capped, rotated logs
+  (5 x 1 MB) under `%ProgramData%\Kovyr\logs`.
+* CI on `windows-latest` measures the resource budget and drives the real
+  service: install, start, status, stop, crash recovery, uninstall.
+
 ## Next tickets
 
 In rough order. Each one gets its own branch and review.
@@ -50,10 +65,7 @@ In rough order. Each one gets its own branch and review.
 1. ~~**Vendor the proof engine.**~~ Done in Ticket 2.
 2. ~~**SPEC additions.**~~ Done in Ticket 2 (see `docs/api.md`, "Spec
    decisions").
-3. **Windows service install.** Run as a service (LocalSystem), with an
-   install/uninstall command, SCM recovery actions, a clean stop, and logs
-   capped in size. Also back off on battery and under load (target under 1%
-   CPU and 50 MB RAM).
+3. ~~**Windows service install.**~~ Done in Ticket 3.
 4. **Enrollment.** Tenant key, SPEC 6.3 attester enrollment records (tenant
    then device signature), single-use expiring enrollment codes,
    `device_number`, and seq 1 linked to the enrollment payload.
@@ -79,6 +91,16 @@ In rough order. Each one gets its own branch and review.
   `sensor_health.driver_blocklist_version`.
 * If BitLocker reports `encryption_required` on real machines, query it
   over a packet-privacy WMI connection.
+
+## Follow-ups found in Ticket 3
+
+* Measure the footprint on real laptops and desktops with a third-party
+  EDR installed; CI runners are Windows Server without one.
+* Restrict the service's privileges to what the checks need, after testing
+  WMI and BitLocker queries with the reduced set.
+* An installer (MSI) that places the binary in Program Files and installs
+  the service.
+* A signed "sensor stopping" heartbeat on a clean stop.
 
 ## Follow-ups found in Ticket 2
 

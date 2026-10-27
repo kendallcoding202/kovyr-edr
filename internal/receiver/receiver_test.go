@@ -65,6 +65,7 @@ type opt struct {
 	readings func(*proof.Readings)
 	prev     *proof.Digest
 	seq      uint32
+	schedule *proof.Schedule
 }
 
 // next signs the device's next statement, fetching a nonce from r.
@@ -79,7 +80,11 @@ func (d *testDev) next(t *testing.T, r *Receiver, c *clock, o opt) []byte {
 			t.Fatal(err)
 		}
 	}
-	h := proof.Header{Seq: d.seq + 1, Prev: d.prev, Nonce: n, ObservedAt: c.now, AgentVersion: agent.Version}
+	h := proof.Header{Seq: d.seq + 1, Prev: d.prev, Nonce: n, ObservedAt: c.now, AgentVersion: agent.Version,
+		Schedule: proof.Schedule{IntervalS: 900}}
+	if o.schedule != nil {
+		h.Schedule = *o.schedule
+	}
 	if o.seq != 0 {
 		h.Seq = o.seq
 	}
@@ -164,7 +169,7 @@ func TestHealthyChain(t *testing.T) {
 	if s.LastSeq != 3 || s.Overdue || len(s.Gaps) != 0 || s.TamperEvents != 0 || s.Label != "Front desk PC" || s.LostStatements != 0 {
 		t.Fatalf("status %+v", s)
 	}
-	if l := s.Latest; l == nil || l.EDRRunning != 1 || l.EDRTotal != 1 || l.EDRTruncated {
+	if l := s.Latest; l == nil || l.EDRRunning != 1 || l.EDRTotal != 1 || l.EDRTruncated || l.IntervalS != 900 {
 		t.Fatalf("latest %+v", s.Latest)
 	}
 }
@@ -520,5 +525,43 @@ func TestAgentToReceiverOverHTTP(t *testing.T) {
 	resp, _ = http.Post(srv.URL+"/v0/enroll", "application/json", nil)
 	if resp.StatusCode != http.StatusNotImplemented {
 		t.Fatalf("enroll stub: %d", resp.StatusCode)
+	}
+}
+
+// SPEC 6.5 schedule: silence is judged against the interval the previous
+// statement announced, plus the deferral the next one reports.
+func TestGapsFollowTheAnnouncedSchedule(t *testing.T) {
+	d := newDev(t)
+	r, c := newReceiver(t, nil, d)
+	battery := &proof.Schedule{IntervalS: 1800}
+	expect(t, r.Receive(d.next(t, r, c, opt{schedule: battery})), 200, "accepted")
+	// 30 minutes later, as announced: no gap, though the receiver
+	// expects 15 minutes by default.
+	c.now = c.now.Add(30 * time.Minute)
+	expect(t, r.Receive(d.next(t, r, c, opt{})), 200, "accepted")
+	if s := statusOf(t, r, d); len(s.Gaps) != 0 || s.MissedIntervals != 0 {
+		t.Fatalf("battery interval reported as a gap: %+v", s.Gaps)
+	}
+	// Next one is due in 15 minutes but is deferred 10 minutes under load.
+	c.now = c.now.Add(25 * time.Minute)
+	expect(t, r.Receive(d.next(t, r, c, opt{schedule: &proof.Schedule{IntervalS: 900, DeferredS: 600}})), 200, "accepted")
+	if s := statusOf(t, r, d); len(s.Gaps) != 0 {
+		t.Fatalf("deferred heartbeat reported as a gap: %+v", s.Gaps)
+	}
+	// The same lateness without a deferral is a gap.
+	c.now = c.now.Add(24 * time.Minute)
+	expect(t, r.Receive(d.next(t, r, c, opt{})), 200, "accepted")
+	if s := statusOf(t, r, d); len(s.Gaps) != 1 || s.Gaps[0].MissedIntervals != 1 {
+		t.Fatalf("late heartbeat not reported: %+v", s.Gaps)
+	}
+	// Overdue follows the last announced interval: 1800 s here.
+	expect(t, r.Receive(d.next(t, r, c, opt{schedule: battery})), 200, "accepted")
+	c.now = c.now.Add(40 * time.Minute)
+	if s := statusOf(t, r, d); s.Overdue || len(s.Gaps) != 1 {
+		t.Fatalf("overdue or ongoing gap before 1.5 announced intervals: %+v", s.Gaps)
+	}
+	c.now = c.now.Add(10 * time.Minute)
+	if s := statusOf(t, r, d); !s.Overdue || len(s.Gaps) != 2 || !s.Gaps[1].Ongoing || s.Gaps[1].MissedIntervals != 1 {
+		t.Fatalf("not overdue after 1.5 announced intervals: %+v", s.Gaps)
 	}
 }

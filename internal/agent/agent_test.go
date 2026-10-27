@@ -262,15 +262,23 @@ func TestHostileChallengeIsIgnored(t *testing.T) {
 }
 
 type fakeClock struct {
-	mu     sync.Mutex
-	now    time.Time
-	waits  []time.Duration
-	onWait func(n int)
+	mu      sync.Mutex
+	now     time.Time
+	waits   []time.Duration
+	onWait  func(n int)
+	stopped bool // once set, After never fires, so a cancelled loop stops at once
 }
 
 func (c *fakeClock) Now() time.Time { c.mu.Lock(); defer c.mu.Unlock(); return c.now }
+
+func (c *fakeClock) stop() { c.mu.Lock(); c.stopped = true; c.mu.Unlock() }
+
 func (c *fakeClock) After(d time.Duration) <-chan time.Time {
 	c.mu.Lock()
+	if c.stopped {
+		c.mu.Unlock()
+		return nil
+	}
 	if d < 0 {
 		d = 0
 	}

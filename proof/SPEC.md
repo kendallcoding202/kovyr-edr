@@ -339,6 +339,7 @@ Common fields, with the names and formats of the posture common fields
 | `seq`, `prev`, `nonce`, `salt`, `observed_at` | as in 6.2 |
 | `agent_version` | `{"major","minor","patch"}`, integers 0 to 65535 (never a version string) |
 | `sensor_health` | the 6.4 schema, unchanged: `sensor_running`, `tamper_detected` (booleans), `driver_blocklist_version`, `policy_version` (integers 0 to 2^53 − 1) |
+| `schedule` | when the agent reports, below |
 | `protection` | the protection checks, below |
 
 **No tenant yet.** `tenant` (6.2) and the link from `seq` 1 to the
@@ -349,6 +350,21 @@ enrolled device key, the chain and nonce rules of section 8) by the ingest
 server that holds the device's key. It cannot be bound to a firm, so it never
 appears in a Proof Pack, and pack verifiers refuse it (`enrollment` step).
 The enrollment change adds `tenant` as a required field.
+
+**`schedule`.** The agent backs off on battery and under load, so it says
+in each statement what it is doing:
+
+| Field | Type |
+|---|---|
+| `interval_s` | integer 60 to 3600: how long the agent plans to wait before its next heartbeat |
+| `deferred_s` | integer 0 to 3600: how long this heartbeat was put off because the computer was busy |
+| `heavy_checks_skipped` | boolean: slow checks were skipped this time to save battery; they report `unknown` |
+
+A receiver judges silence against the `interval_s` the previous statement
+announced (allowing for the next statement's `deferred_s`), so a laptop
+that lengthens its interval on battery is not reported as missing
+heartbeats. `interval_s` is capped, so an agent cannot announce a long
+silence in advance.
 
 **`protection`.** Integers use `-1` for "unknown or not applicable". Each
 multi-value check has a `state` (`ok`, `unknown`, `not_applicable`). A check

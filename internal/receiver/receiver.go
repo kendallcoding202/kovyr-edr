@@ -339,7 +339,8 @@ func (r *Receiver) receive(raw []byte, now time.Time, replaying bool) Result {
 	d.haveChain, d.lastSeq, d.lastDigest, d.lastObs, d.lastRecv = true, st.Seq, digest, st.ObservedAt, now
 	d.latest = st
 	d.accepted++
-	d.checkins = append(d.checkins, checkin{at: st.ObservedAt, seq: st.Seq})
+	d.checkins = append(d.checkins, checkin{at: st.ObservedAt, seq: st.Seq,
+		interval: time.Duration(st.Schedule.IntervalS) * time.Second, deferred: time.Duration(st.Schedule.DeferredS) * time.Second})
 	if len(d.checkins) > maxCheckinsPerDev {
 		d.checkins = d.checkins[len(d.checkins)-maxCheckinsPerDev:]
 	}
@@ -348,8 +349,10 @@ func (r *Receiver) receive(raw []byte, now time.Time, replaying bool) Result {
 
 // checkin is one accepted statement, as gap detection needs it.
 type checkin struct {
-	at  time.Time // observed_at
-	seq uint32
+	at       time.Time // observed_at
+	seq      uint32
+	interval time.Duration // schedule.interval_s: when the next one is due
+	deferred time.Duration // schedule.deferred_s: how late this one was, on purpose
 }
 
 func (d *device) add(e Event) {

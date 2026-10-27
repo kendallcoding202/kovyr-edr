@@ -101,6 +101,7 @@ const (
 	OutcomeTimeout            Outcome = "timeout"
 	OutcomeBusy               Outcome = "busy" // the previous run of this check is still stuck
 	OutcomePanic              Outcome = "panic"
+	OutcomeSkipped            Outcome = "skipped" // a heavy check, skipped to save battery
 )
 
 func outcomeOf(err error) Outcome {
@@ -145,38 +146,42 @@ func NewRunner(p Probes) *Runner { return &Runner{Probes: p, Timeout: DefaultTim
 
 type checkFn struct {
 	name string
-	run  func() (func(*proof.Readings), Outcome)
+	// heavy checks are slow WMI queries of settings that change only
+	// with a reboot or an administrator's action (BitLocker, memory
+	// integrity). They are the ones skipped on battery.
+	heavy bool
+	run   func() (func(*proof.Readings), Outcome)
 }
 
 func (r *Runner) checks() []checkFn {
 	p := r.Probes
 	return []checkFn{
-		{"security_center", func() (func(*proof.Readings), Outcome) {
+		{"security_center", false, func() (func(*proof.Readings), Outcome) {
 			s, err := p.AVProductStates()
 			v := SecurityCenterFrom(s, err)
 			return func(o *proof.Readings) { o.SecurityCenter = v }, outcomeOf(err)
 		}},
-		{"defender", func() (func(*proof.Readings), Outcome) {
+		{"defender", false, func() (func(*proof.Readings), Outcome) {
 			s, err := p.DefenderStatus()
 			v := DefenderFrom(s, err)
 			return func(o *proof.Readings) { o.Defender = v }, outcomeOf(err)
 		}},
-		{"edr", func() (func(*proof.Readings), Outcome) {
+		{"edr", false, func() (func(*proof.Readings), Outcome) {
 			s, err := p.Services()
 			v := EDRFrom(s, err)
 			return func(o *proof.Readings) { o.EDR = v }, outcomeOf(err)
 		}},
-		{"bitlocker", func() (func(*proof.Readings), Outcome) {
+		{"bitlocker", true, func() (func(*proof.Readings), Outcome) {
 			s, err := p.OSVolumeProtectionStatus()
 			v := BitLockerFrom(s, err)
 			return func(o *proof.Readings) { o.BitLocker = v }, outcomeOf(err)
 		}},
-		{"firewall", func() (func(*proof.Readings), Outcome) {
+		{"firewall", false, func() (func(*proof.Readings), Outcome) {
 			s, err := p.Firewall()
 			v := FirewallFrom(s, err)
 			return func(o *proof.Readings) { o.FirewallProfilesOn = v }, outcomeOf(err)
 		}},
-		{"driver_blocklist", func() (func(*proof.Readings), Outcome) {
+		{"driver_blocklist", false, func() (func(*proof.Readings), Outcome) {
 			s, err := p.DriverBlocklist()
 			v := DriverBlocklistFrom(s, err)
 			oc := outcomeOf(err)
@@ -185,7 +190,7 @@ func (r *Runner) checks() []checkFn {
 			}
 			return func(o *proof.Readings) { o.DriverBlocklist = v }, oc
 		}},
-		{"memory_integrity", func() (func(*proof.Readings), Outcome) {
+		{"memory_integrity", true, func() (func(*proof.Readings), Outcome) {
 			s, err := p.DeviceGuardServicesRunning()
 			v := MemoryIntegrityFrom(s, err)
 			return func(o *proof.Readings) { o.MemoryIntegrity = v }, outcomeOf(err)
@@ -202,9 +207,30 @@ func CheckNames() []string {
 	return out
 }
 
-// Run runs all checks concurrently and returns within Timeout. Checks that
-// fail, panic or miss the deadline report unknown.
-func (r *Runner) Run() (proof.Readings, []CheckReport) {
+// HeavyChecks lists the checks RunOptions.SkipHeavy skips.
+func HeavyChecks() []string {
+	var out []string
+	for _, c := range (&Runner{Probes: Fake{}}).checks() {
+		if c.heavy {
+			out = append(out, c.name)
+		}
+	}
+	return out
+}
+
+// RunOptions changes what one run does.
+type RunOptions struct {
+	// SkipHeavy skips the heavy checks (on battery); they report unknown
+	// with outcome skipped.
+	SkipHeavy bool
+}
+
+// Run runs all checks; see RunWith.
+func (r *Runner) Run() (proof.Readings, []CheckReport) { return r.RunWith(RunOptions{}) }
+
+// RunWith runs the checks concurrently and returns within Timeout. Checks
+// that fail, panic or miss the deadline report unknown.
+func (r *Runner) RunWith(opts RunOptions) (proof.Readings, []CheckReport) {
 	out := proof.UnknownReadings()
 	type result struct {
 		name    string
@@ -218,6 +244,10 @@ func (r *Runner) Run() (proof.Readings, []CheckReport) {
 	var reports []CheckReport
 	start := time.Now()
 	for _, c := range list {
+		if c.heavy && opts.SkipHeavy {
+			reports = append(reports, CheckReport{Name: c.name, Outcome: OutcomeSkipped})
+			continue
+		}
 		if !r.acquire(c.name) {
 			reports = append(reports, CheckReport{Name: c.name, Outcome: OutcomeBusy})
 			continue

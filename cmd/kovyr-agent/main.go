@@ -7,7 +7,8 @@
 //	kovyr-agent check   [--state-dir DIR] [--json]
 //	kovyr-agent keygen  [--state-dir DIR]
 //	kovyr-agent enroll  --print-pubkey [--state-dir DIR]
-//	kovyr-agent run     --server URL [--interval 15m] [--dev-insecure] [--once] [--state-dir DIR]
+//	kovyr-agent run     --server URL [--interval 15m] [--dev-insecure] [--once] [--usage] [--state-dir DIR]
+//	kovyr-agent service install|uninstall|start|stop|status (Windows)
 package main
 
 import (
@@ -28,18 +29,21 @@ import (
 	"github.com/kendallcoding202/kovyr-edr/internal/checks"
 	"github.com/kendallcoding202/kovyr-edr/internal/keystore"
 	"github.com/kendallcoding202/kovyr-edr/internal/proof"
+	"github.com/kendallcoding202/kovyr-edr/internal/sysload"
+	"github.com/kendallcoding202/kovyr-edr/internal/usage"
 )
 
 // systemProbes is replaced in tests.
 var systemProbes = checks.SystemProbes
 
-const usage = `kovyr-agent: Kovyr Protection Alarm agent (v0, read-only)
+const usageText = `kovyr-agent: Kovyr Protection Alarm agent (v0, read-only)
 
 Commands:
   check                  run the protection checks once; print a table and the statement
   keygen                 create this device's signing key
   enroll --print-pubkey  print the public key to enroll this device (enrollment is a stub in v0)
-  run --server URL       send a signed heartbeat every interval
+  run --server URL       send a signed heartbeat every interval (in this console)
+  service ...            install and control the Windows service (kovyr-agent service for help)
 
 Common flag: --state-dir DIR (default %s)
 `
@@ -52,10 +56,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 		defDir = "kovyr-state"
 	}
 	if len(args) == 0 {
-		fmt.Fprintf(stderr, usage, defDir)
+		fmt.Fprintf(stderr, usageText, defDir)
 		return 2
 	}
 	cmd, rest := args[0], args[1:]
+	if cmd == "service" {
+		return cmdService(rest, defDir, stdout, stderr)
+	}
 	fs := flag.NewFlagSet("kovyr-agent "+cmd, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	dir := fs.String("state-dir", defDir, "directory for the device key, chain state and queue")
@@ -86,6 +93,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		interval := fs.Duration("interval", agent.DefaultInterval, "heartbeat interval (1m to 60m)")
 		insecure := fs.Bool("dev-insecure", false, "DEV ONLY: allow plain http to localhost")
 		once := fs.Bool("once", false, "send one heartbeat (and any queued ones), then exit")
+		showUsage := fs.Bool("usage", false, "print this process's CPU time and peak memory when it exits (diagnostics)")
 		if fs.Parse(rest) != nil {
 			return 2
 		}
@@ -93,12 +101,18 @@ func run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "run needs --server URL")
 			return 2
 		}
-		return cmdRun(*dir, *server, *interval, *insecure, *once, stderr)
+		code := cmdRun(*dir, *server, *interval, *insecure, *once, stderr)
+		if *showUsage {
+			if u, err := usage.Self(); err == nil {
+				fmt.Fprintln(stderr, "kovyr-agent", u)
+			}
+		}
+		return code
 	case "help", "-h", "--help":
-		fmt.Fprintf(stdout, usage, defDir)
+		fmt.Fprintf(stdout, usageText, defDir)
 		return 0
 	}
-	fmt.Fprintf(stderr, "unknown command %q\n\n"+usage, cmd, defDir)
+	fmt.Fprintf(stderr, "unknown command %q\n\n"+usageText, cmd, defDir)
 	return 2
 }
 
@@ -141,7 +155,8 @@ func cmdCheck(dir string, jsonOnly bool, stdout, stderr io.Writer) int {
 // previewStatement builds a statement exactly as a heartbeat would, with
 // seq 1 and a random nonce, and checks it.
 func previewStatement(s proof.Signer, r proof.Readings) ([]byte, error) {
-	h := proof.Header{Seq: 1, Prev: proof.GenesisPrev, ObservedAt: time.Now(), AgentVersion: agent.Version}
+	h := proof.Header{Seq: 1, Prev: proof.GenesisPrev, ObservedAt: time.Now(), AgentVersion: agent.Version,
+		Schedule: proof.Schedule{IntervalS: uint16(agent.DefaultInterval / time.Second)}}
 	var err error
 	if h.Salt, err = proof.NewSalt(); err != nil {
 		return nil, err
@@ -215,7 +230,8 @@ func cmdRun(dir, server string, interval time.Duration, insecure, once bool, std
 		logger.Print(err)
 		return 1
 	}
-	a, err := agent.New(agent.Config{Dir: dir, Interval: interval, Logf: logger.Printf}, signer, checks.NewRunner(systemProbes()), client)
+	a, err := agent.New(agent.Config{Dir: dir, Interval: interval, Logf: logger.Printf, Conditions: sysload.System()},
+		signer, checks.NewRunner(systemProbes()), client)
 	if err != nil {
 		logger.Print(err)
 		return 1

@@ -45,11 +45,30 @@ jobs:
           GOARCH: amd64
         run: go build -o dist/ ./cmd/kovyr-agent ./cmd/kovyr-receiver-dev
 
-      - name: Real Windows checks and DPAPI key store (integration)
+      - name: Real Windows checks, power and load, DPAPI key store (integration)
         if: runner.os == 'Windows'
-        run: go test -count=1 -v -run "TestRealWindowsChecks|TestDPAPI|TestKeyFileHoldsNoPlainKey|TestGenerateLoadRoundTrip" ./internal/checks/ ./internal/keystore/
+        run: go test -count=1 -v -run "TestRealWindowsChecks|TestRealWindowsConditions|TestDPAPI|TestKeyFileHoldsNoPlainKey|TestGenerateLoadRoundTrip" ./internal/checks/ ./internal/sysload/ ./internal/keystore/
 
       - name: kovyr-agent check on this runner
         if: runner.os == 'Windows'
         shell: bash
         run: ./dist/kovyr-agent.exe check --state-dir "$RUNNER_TEMP/kovyr-state"
+
+      # CLAUDE.md: under 1% CPU on average and under 50 MB RAM. Measures a
+      # run --once loop and the running loop on this runner; fails over
+      # budget. The numbers go to the job summary.
+      - name: Resource budget
+        if: runner.os == 'Windows'
+        run: go run ./internal/tools/winci budget --agent dist/kovyr-agent.exe --receiver dist/kovyr-receiver-dev.exe
+
+      # The real service on this (elevated) runner, against the dev
+      # receiver on loopback: install, status, start, heartbeats, stop,
+      # crash recovery, uninstall.
+      - name: Windows service lifecycle
+        if: runner.os == 'Windows'
+        run: go run ./internal/tools/winci service --agent dist/kovyr-agent.exe --receiver dist/kovyr-receiver-dev.exe
+
+      - name: Service log (on failure)
+        if: failure() && runner.os == 'Windows'
+        shell: pwsh
+        run: Get-Content -ErrorAction SilentlyContinue "$env:ProgramData\Kovyr\logs\agent.log"

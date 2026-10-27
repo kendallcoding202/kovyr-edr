@@ -114,7 +114,9 @@ The dev receiver answers with a small JSON body for people using `curl`
 ```
 
 * **Check-ins and gaps.** A gap is a stretch between consecutive statements
-  (by `observed_at`) longer than 1.5 intervals, counted as missed intervals,
+  (by `observed_at`) longer than 1.5 times the interval the earlier one
+  announced (`schedule.interval_s`) plus the later one's `deferred_s`,
+  counted as missed intervals,
   or a hole in the seq numbers, counted as `lost_statements` (SPEC 8:
   statements signed but never received), or both. A hole with no missed
   interval is a gap of its own; a hole before the first statement seen is a
@@ -122,7 +124,8 @@ The dev receiver answers with a small JSON body for people using `curl`
   last statement. `overdue` means nothing has arrived for 1.5 intervals, or
   the device never checked in. `lost_statements` on the device is the total.
   `latest` also shows `edr_agents_total` and `edr_agents_truncated`, since
-  the statement's agent list is capped.
+  the statement's agent list is capped, and the announced schedule
+  (`interval_s`, `deferred_s`, `heavy_checks_skipped`).
 * **Tamper signals.** Each is raised once, when it first appears:
   * `protection_off`: Defender is the active antivirus (`running_mode`
     `normal`) and its real-time protection, antivirus or service is off;
@@ -152,6 +155,7 @@ An in-toto Statement v1 (SPEC 6), canonical JSON, one subject:
    "seq":12,"prev":"<64 hex>","nonce":"<32 hex>","salt":"<64 hex>",
    "observed_at":"2026-10-26T19:57:21Z",
    "agent_version":{"major":0,"minor":1,"patch":0},
+   "schedule":{"interval_s":900,"deferred_s":0,"heavy_checks_skipped":false},
    "sensor_health":{"sensor_running":true,"tamper_detected":false,
                     "driver_blocklist_version":0,"policy_version":0},
    "protection":{
@@ -185,6 +189,11 @@ An in-toto Statement v1 (SPEC 6), canonical JSON, one subject:
   vendor, never a service name, at most 8 listed. When more are found, the
   stopped ones are kept first and `truncated` is true; `total` is the
   number found.
+* **`schedule`** (SPEC 6.5) says when the next heartbeat is due
+  (`interval_s`, doubled on battery), how long this one was deferred
+  because the processor was busy (`deferred_s`), and whether the heavy
+  checks were skipped to save battery (`heavy_checks_skipped`; BitLocker
+  and memory integrity then read `unknown`). See `docs/windows-service.md`.
 * **No `tenant`** until endpoint enrollment ships, and `seq` 1 links to the
   all-zero `prev` (SPEC 6.5). Such statements are verified one by one by the
   receiver that holds the device key and cannot go into a Proof Pack.

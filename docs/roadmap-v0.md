@@ -58,6 +58,27 @@ machine. It ships in small tickets, each reviewed before merge.
 * CI on `windows-latest` measures the resource budget and drives the real
   service: install, start, status, stop, crash recovery, uninstall.
 
+### Ticket 4: the ransomware tripwire (`claude/ransomware-tripwire`)
+
+* `internal/tripwire`: `ReadDirectoryChangesW` on each user's Desktop and
+  Documents plus configured data folders (at most 32), one completion
+  port, double-buffered. Changes are classified in memory (extension
+  change, ransom-note or random name, temporary-file renames excluded) and
+  counted in a sliding window; names are never kept. Read-only: no file is
+  opened, and nothing is acted on. See `docs/tripwire.md`.
+* Conservative, configurable rules (`mass_extension_change`,
+  `ransom_notes`), a 10-minute cooldown with a lock-free rate limiter, and
+  suppression of known sync and backup engines by their write counts. A
+  buffer overflow counts as unknown activity.
+* SPEC 6.5 gains a `tripwire` section (state, trigger, reason, window,
+  folders, six bucketed counts), instead of the `tamper_detected` flag
+  planned earlier, which stays about the sensor itself. A trip sends an
+  extra heartbeat at once, never deferred; the dev receiver raises
+  `ransomware_suspected` for it.
+* CI on `windows-latest` renames a burst of dummy files the test creates
+  in a temporary folder and checks that the tripwire statement reaches the
+  receiver, and that no statement or log line names a file.
+
 ## Next tickets
 
 In rough order. Each one gets its own branch and review.
@@ -72,8 +93,8 @@ In rough order. Each one gets its own branch and review.
 5. **halden receiver.** The production `/v0` endpoints, gap alerts by email,
    the owner digest, logging to the proof log, and an alert when a new key
    replaces a silent device.
-6. **Tripwire.** Decoy files watched for mass encryption, read-only. Its
-   result feeds `sensor_health.tamper_detected` and a new enum.
+6. ~~**Tripwire.**~~ Done in Ticket 4, without decoy files (a founder
+   decision: see `docs/tripwire.md`).
 7. **Signed updater.** Updates are a code-execution channel: signed and
    verified against a pinned key before they run, rolled out in stages, and
    able to roll back. This needs a security review first.
@@ -91,6 +112,21 @@ In rough order. Each one gets its own branch and review.
   `sensor_health.driver_blocklist_version`.
 * If BitLocker reports `encryption_required` on real machines, query it
   over a packet-privacy WMI connection.
+
+## Follow-ups found in Ticket 4
+
+* Decide on decoy files (they would make the agent create files).
+* Find redirected Desktop and Documents (Group Policy, OneDrive Known Folder
+  Move) from each user's known-folder settings, and watch new profiles
+  without a restart.
+* Confirm the sync and backup engine image names marked unverified in
+  `internal/tripwire/engines.go`; consider checking the engines' code
+  signatures.
+* A rule for copy-then-delete encryption (new file with a new extension,
+  original deleted).
+* Measure false alarms on real office machines (sync clients, photo tools,
+  developer folders) before tuning the defaults.
+* Let halden treat a tripwire that goes from `ok` to `unknown` as a signal.
 
 ## Follow-ups found in Ticket 3
 

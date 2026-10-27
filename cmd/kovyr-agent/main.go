@@ -7,7 +7,8 @@
 //	kovyr-agent check   [--state-dir DIR] [--json]
 //	kovyr-agent keygen  [--state-dir DIR]
 //	kovyr-agent enroll  --print-pubkey [--state-dir DIR]
-//	kovyr-agent run     --server URL [--interval 15m] [--dev-insecure] [--once] [--usage] [--state-dir DIR]
+//	kovyr-agent run     --server URL [--interval 15m] [--dev-insecure] [--once] [--usage]
+//	                    [--watch DIR]... [--no-user-folders] [--state-dir DIR]
 //	kovyr-agent service install|uninstall|start|stop|status (Windows)
 package main
 
@@ -27,6 +28,7 @@ import (
 
 	"github.com/kendallcoding202/kovyr-edr/internal/agent"
 	"github.com/kendallcoding202/kovyr-edr/internal/checks"
+	"github.com/kendallcoding202/kovyr-edr/internal/config"
 	"github.com/kendallcoding202/kovyr-edr/internal/keystore"
 	"github.com/kendallcoding202/kovyr-edr/internal/proof"
 	"github.com/kendallcoding202/kovyr-edr/internal/sysload"
@@ -94,6 +96,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		insecure := fs.Bool("dev-insecure", false, "DEV ONLY: allow plain http to localhost")
 		once := fs.Bool("once", false, "send one heartbeat (and any queued ones), then exit")
 		showUsage := fs.Bool("usage", false, "print this process's CPU time and peak memory when it exits (diagnostics)")
+		var watch folderList
+		fs.Var(&watch, "watch", "also watch this data folder with the ransomware tripwire (repeatable)")
+		noUser := fs.Bool("no-user-folders", false, "do not watch each user's Desktop and Documents")
 		if fs.Parse(rest) != nil {
 			return 2
 		}
@@ -101,7 +106,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "run needs --server URL")
 			return 2
 		}
-		code := cmdRun(*dir, *server, *interval, *insecure, *once, stderr)
+		tw := config.Defaults().Tripwire
+		tw.Folders, tw.UserFolders = watch, !*noUser
+		if err := tw.Validate(); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		code := cmdRun(*dir, *server, *interval, *insecure, *once, tw, stderr)
 		if *showUsage {
 			if u, err := usage.Self(); err == nil {
 				fmt.Fprintln(stderr, "kovyr-agent", u)
@@ -218,7 +229,7 @@ func cmdEnroll(dir string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func cmdRun(dir, server string, interval time.Duration, insecure, once bool, stderr io.Writer) int {
+func cmdRun(dir, server string, interval time.Duration, insecure, once bool, tw config.Tripwire, stderr io.Writer) int {
 	logger := log.New(stderr, "kovyr-agent: ", log.LstdFlags)
 	client, err := agent.NewHTTPClient(server, insecure)
 	if err != nil {
@@ -230,7 +241,9 @@ func cmdRun(dir, server string, interval time.Duration, insecure, once bool, std
 		logger.Print(err)
 		return 1
 	}
-	a, err := agent.New(agent.Config{Dir: dir, Interval: interval, Logf: logger.Printf, Conditions: sysload.System()},
+	trip, stopTrip := startTripwire(tw, logger.Printf)
+	defer stopTrip()
+	a, err := agent.New(agent.Config{Dir: dir, Interval: interval, Logf: logger.Printf, Conditions: sysload.System(), Tripwire: trip},
 		signer, checks.NewRunner(systemProbes()), client)
 	if err != nil {
 		logger.Print(err)

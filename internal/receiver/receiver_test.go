@@ -443,6 +443,62 @@ func TestTamperSignalsRaiseOnceAndClear(t *testing.T) {
 	}
 }
 
+func tripped(reason proof.TripReason) func(*proof.Readings) {
+	return func(rd *proof.Readings) {
+		rd.Tripwire = proof.Tripwire{State: proof.AvailOK, Triggered: true, Reason: reason, Window: proof.TripWindow60s,
+			FoldersWatched: 4, Counts: proof.TripCounts{Renamed: proof.Bucket100to999, ExtensionChanged: proof.Bucket100to999,
+				Modified: proof.Bucket10to99, SuspiciousCreated: proof.Bucket1to9}}
+	}
+}
+
+// A tripped tripwire is a tamper signal, raised for every statement that
+// carries a trip (each is a new firing), and shown in the status.
+func TestRansomwareTripIsATamperSignal(t *testing.T) {
+	d := newDev(t)
+	r, c := newReceiver(t, nil, d)
+	watching := func(rd *proof.Readings) {
+		rd.Tripwire = proof.Tripwire{State: proof.AvailOK, Window: proof.TripWindow60s, FoldersWatched: 4}
+	}
+	expect(t, r.Receive(d.next(t, r, c, opt{readings: watching})), 200, "accepted")
+	if s := statusOf(t, r, d); s.Latest.TripwireState != "ok" || s.Latest.TripwireTriggered || s.Latest.TripwireFolders != 4 ||
+		s.Latest.TripwireCounts["renamed"] != "0" || len(s.TamperSignals) != 0 {
+		t.Fatalf("quiet tripwire: %+v %v", s.Latest, s.TamperSignals)
+	}
+	for i, reason := range []proof.TripReason{proof.TripMassExtensionChange, proof.TripMassExtensionChange, proof.TripRansomNotes} {
+		c.now = c.now.Add(time.Minute)
+		res := r.Receive(d.next(t, r, c, opt{readings: tripped(reason)}))
+		expect(t, res, 200, "accepted")
+		var found *Event
+		for j := range res.Events {
+			if res.Events[j].Kind == EvRansomware {
+				found = &res.Events[j]
+			}
+		}
+		if found == nil || !found.Tamper || found.Detail != reason.String() {
+			t.Fatalf("trip %d: events %v", i, res.Events)
+		}
+		s := statusOf(t, r, d)
+		if !s.HasSignal(EvRansomware) || !s.Latest.TripwireTriggered || s.Latest.TripwireReason != reason.String() ||
+			s.Latest.TripwireCounts["extension_changed"] != "100_999" {
+			t.Fatalf("trip %d: status %+v %v", i, s.Latest, s.TamperSignals)
+		}
+	}
+	c.now = c.now.Add(time.Minute)
+	if res := r.Receive(d.next(t, r, c, opt{readings: watching})); hasEvent(res, EvRansomware) {
+		t.Fatalf("a quiet statement raised %v", res.Events)
+	}
+	s := statusOf(t, r, d)
+	if s.HasSignal(EvRansomware) || s.TamperEvents < 3 {
+		t.Fatalf("after the trip: signals %v, tamper events %d", s.TamperSignals, s.TamperEvents)
+	}
+	// A tripwire that is not watching shows only its state.
+	c.now = c.now.Add(time.Minute)
+	r.Receive(d.next(t, r, c, opt{}))
+	if l := statusOf(t, r, d).Latest; l.TripwireState != "unknown" || l.TripwireCounts != nil || l.TripwireReason != "" {
+		t.Fatalf("unknown tripwire: %+v", l)
+	}
+}
+
 func TestRestartReplaysTheStore(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "envelopes.jsonl")
 	store, err := OpenStore(path)

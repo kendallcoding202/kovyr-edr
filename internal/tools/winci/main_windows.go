@@ -1,14 +1,18 @@
 // Command winci runs the Windows-only CI checks against the real
 // binaries on a windows-latest runner (elevated):
 //
-//	winci budget  --agent dist\kovyr-agent.exe --receiver dist\kovyr-receiver-dev.exe
-//	winci service --agent dist\kovyr-agent.exe --receiver dist\kovyr-receiver-dev.exe
+//	winci budget   --agent dist\kovyr-agent.exe --receiver dist\kovyr-receiver-dev.exe
+//	winci service  --agent dist\kovyr-agent.exe --receiver dist\kovyr-receiver-dev.exe
+//	winci tripwire --agent dist\kovyr-agent.exe --receiver dist\kovyr-receiver-dev.exe
 //
 // budget measures CPU and memory of a `run --once` loop and of the
 // running heartbeat loop, and fails over budget (CLAUDE.md section 2:
 // under 1% CPU on average, under 50 MB RAM). service installs, starts,
 // queries, stops, crash-restarts and uninstalls the real Windows service
-// against the dev receiver on loopback.
+// against the dev receiver on loopback. tripwire runs the agent with the
+// ransomware tripwire on a temporary folder of dummy files it creates,
+// renames them all, and checks that the trip reaches the receiver at once
+// (tripwire_windows.go).
 //
 // This is a test tool. It starts processes (os/exec), which the agent
 // itself never does; it is not part of the agent binary.
@@ -71,7 +75,7 @@ func enableDebugPrivilege() {
 func main() {
 	enableDebugPrivilege()
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: winci budget|service --agent EXE --receiver EXE")
+		fmt.Fprintln(os.Stderr, "usage: winci budget|service|tripwire --agent EXE --receiver EXE")
 		os.Exit(2)
 	}
 	fs := flag.NewFlagSet(os.Args[1], flag.ExitOnError)
@@ -86,6 +90,8 @@ func main() {
 		err = budget(abs(*agentExe), abs(*receiverExe), *runs, *loop)
 	case "service":
 		err = serviceTest(abs(*agentExe), abs(*receiverExe))
+	case "tripwire":
+		err = tripwireTest(abs(*agentExe), abs(*receiverExe))
 	default:
 		err = fmt.Errorf("unknown command %q", os.Args[1])
 	}
@@ -150,11 +156,18 @@ type devStatus struct {
 	LostStatements int      `json:"lost_statements"`
 	Signals        []string `json:"tamper_signals_active"`
 	Events         []struct {
-		Kind string `json:"kind"`
+		Kind   string `json:"kind"`
+		Detail string `json:"detail"`
+		Seq    uint32 `json:"seq"`
 	} `json:"events"`
 	Latest *struct {
-		IntervalS          int  `json:"interval_s"`
-		HeavyChecksSkipped bool `json:"heavy_checks_skipped"`
+		IntervalS          int               `json:"interval_s"`
+		HeavyChecksSkipped bool              `json:"heavy_checks_skipped"`
+		TripwireState      string            `json:"tripwire_state"`
+		TripwireTriggered  bool              `json:"tripwire_triggered"`
+		TripwireReason     string            `json:"tripwire_reason"`
+		TripwireFolders    int               `json:"tripwire_folders_watched"`
+		TripwireCounts     map[string]string `json:"tripwire_counts"`
 	} `json:"latest"`
 }
 

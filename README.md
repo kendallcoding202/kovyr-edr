@@ -15,7 +15,7 @@ each one useful on its own, toward a full EDR.
 
 | Stage | What ships | What it is not |
 |---|---|---|
-| **v0: Protection Alarm** (now) | A read-only Windows agent. It checks that Defender or another antivirus/EDR is running and not tampered with, that disk encryption, firewall and the vulnerable-driver blocklist are on, and it watches decoy files for mass encryption. It sends signed heartbeats, so a missed or tampered check-in raises an alert. | No remote control, no running commands, no automatic response, no kernel code. |
+| **v0: Protection Alarm** (now) | A read-only Windows agent. It checks that Defender or another antivirus/EDR is running and not tampered with, that disk encryption, firewall and the vulnerable-driver blocklist are on, and it watches each user's Desktop and Documents for the mass renaming that ransomware causes (it reports; it never stops a process or touches a file). It sends signed heartbeats, so a missed or tampered check-in raises an alert. | No remote control, no running commands, no automatic response, no kernel code. |
 | **v1: Detection lite** | User-mode detection for the ~30 techniques behind most small-office attacks (Windows event logs, ETW, Sysmon). It sends alerts with a signed record of each detection. macOS agent. | Still no automatic destructive action. |
 | **v2: Response** | Opt-in, customer-approved actions: isolate a computer from the network, stop a process, sign a user out of Microsoft 365. Every action is signed into the log. 24/7 coverage through a partner. | No kernel driver. |
 | **v3: Full EDR** | Prevention at the deepest level of Windows, after joining the Microsoft Virus Initiative (MVI) and passing independent lab tests. Our own 24/7 team. | |

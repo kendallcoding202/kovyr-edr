@@ -117,8 +117,9 @@ type SensorHealth struct {
 	PolicyVersion          uint64 // 0..MaxVersion; 0 = no policy
 }
 
-// Readings are the results of the protection checks. Use UnknownReadings
-// as the starting point: its integers are UnknownCount, not 0.
+// Readings are the results of the protection checks and the tripwire.
+// Use UnknownReadings as the starting point: its integers are
+// UnknownCount, not 0.
 type Readings struct {
 	SecurityCenter     SecurityCenter
 	Defender           Defender
@@ -127,7 +128,32 @@ type Readings struct {
 	FirewallProfilesOn int8 // 0..3 profiles on, or UnknownCount
 	DriverBlocklist    BlocklistState
 	MemoryIntegrity    Toggle
+	Tripwire           Tripwire
 }
+
+// Tripwire is SPEC 6.5's ransomware tripwire section. Only State is used
+// when it is not watching (State not AvailOK).
+type Tripwire struct {
+	State          Availability
+	Triggered      bool
+	Reason         TripReason
+	Window         TripWindow
+	FoldersWatched uint8 // 0..MaxTripwireFolders
+	Counts         TripCounts
+}
+
+// TripCounts are the tripwire's bucketed counts.
+type TripCounts struct {
+	Renamed           TripBucket
+	ExtensionChanged  TripBucket
+	Modified          TripBucket
+	Deleted           TripBucket
+	SuspiciousCreated TripBucket
+	UnknownActivity   TripBucket
+}
+
+// MaxTripwireFolders caps tripwire.folders_watched.
+const MaxTripwireFolders = posture.MaxTripwireFolders
 
 // SecurityCenter is the Windows Security Center antivirus summary.
 type SecurityCenter struct {
@@ -258,6 +284,7 @@ func BuildStatement(key *PublicKey, h Header, sh SensorHealth, r Readings) ([]by
 			"heavy_checks_skipped": h.Schedule.HeavyChecksSkipped,
 		},
 		"protection": protection,
+		"tripwire":   tripwireValue(&e, r.Tripwire),
 	}
 	if e.err != nil {
 		return nil, fmt.Errorf("builder refused statement: %w", e.err)
@@ -311,6 +338,28 @@ func agentList(e *enc, in []EDRAgent) (map[string]any, error) {
 		})
 	}
 	return map[string]any{"items": items, "total": int64(len(in)), "truncated": truncated}, nil
+}
+
+// tripwireValue is the tripwire section. A tripwire that is not watching
+// says only that; anything else set on it is passed on so the schema
+// refuses it, rather than a trip being dropped silently.
+func tripwireValue(e *enc, t Tripwire) map[string]any {
+	v := map[string]any{"state": e.name(availabilityNames, uint8(t.State))}
+	if t.State != AvailOK && t == (Tripwire{State: t.State}) {
+		return v
+	}
+	c := t.Counts
+	v["triggered"] = t.Triggered
+	v["reason"] = e.name(tripReasonNames, uint8(t.Reason))
+	v["window"] = e.name(tripWindowNames, uint8(t.Window))
+	v["folders_watched"] = int64(t.FoldersWatched)
+	v["renamed"] = e.name(bucketNames, uint8(c.Renamed))
+	v["extension_changed"] = e.name(bucketNames, uint8(c.ExtensionChanged))
+	v["modified"] = e.name(bucketNames, uint8(c.Modified))
+	v["deleted"] = e.name(bucketNames, uint8(c.Deleted))
+	v["suspicious_created"] = e.name(bucketNames, uint8(c.SuspiciousCreated))
+	v["unknown_activity"] = e.name(bucketNames, uint8(c.UnknownActivity))
+	return v
 }
 
 // edrValue is the edr check: a check that did not run lists no agents.
@@ -417,6 +466,16 @@ func decodeStatement(obj map[string]any) *Statement {
 			DriverBlocklist:    BlocklistState(ev(blocklistNames, c["vulnerable_driver_blocklist"])),
 			MemoryIntegrity:    Toggle(ev(toggleNames, c["memory_integrity"])),
 		},
+	}
+	tw := p["tripwire"].(map[string]any)
+	st.Readings.Tripwire.State = Availability(ev(availabilityNames, tw["state"]))
+	if st.Readings.Tripwire.State == AvailOK {
+		b := func(k string) TripBucket { return TripBucket(ev(bucketNames, tw[k])) }
+		st.Readings.Tripwire = Tripwire{State: AvailOK, Triggered: tw["triggered"].(bool),
+			Reason: TripReason(ev(tripReasonNames, tw["reason"])), Window: TripWindow(ev(tripWindowNames, tw["window"])),
+			FoldersWatched: uint8(tw["folders_watched"].(int64)),
+			Counts: TripCounts{Renamed: b("renamed"), ExtensionChanged: b("extension_changed"), Modified: b("modified"),
+				Deleted: b("deleted"), SuspiciousCreated: b("suspicious_created"), UnknownActivity: b("unknown_activity")}}
 	}
 	if list, ok := e["agents"].(map[string]any); ok { // present only when state is ok
 		for _, a := range list["items"].([]any) {

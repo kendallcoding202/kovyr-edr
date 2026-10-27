@@ -124,8 +124,11 @@ The dev receiver answers with a small JSON body for people using `curl`
   last statement. `overdue` means nothing has arrived for 1.5 intervals, or
   the device never checked in. `lost_statements` on the device is the total.
   `latest` also shows `edr_agents_total` and `edr_agents_truncated`, since
-  the statement's agent list is capped, and the announced schedule
-  (`interval_s`, `deferred_s`, `heavy_checks_skipped`).
+  the statement's agent list is capped, the announced schedule
+  (`interval_s`, `deferred_s`, `heavy_checks_skipped`) and the tripwire
+  (`tripwire_state`, `tripwire_triggered`, `tripwire_reason`,
+  `tripwire_window`, `tripwire_folders_watched`, and `tripwire_counts` with
+  the six buckets while it is watching).
 * **Tamper signals.** Each is raised once, when it first appears:
   * `protection_off`: Defender is the active antivirus (`running_mode`
     `normal`) and its real-time protection, antivirus or service is off;
@@ -133,6 +136,11 @@ The dev receiver answers with a small JSON body for people using `curl`
     than 3 firewall profiles are on;
   * `tamper_protection_off`: Defender tamper protection off;
   * `edr_not_running`: a known EDR agent is installed but not running;
+  * `ransomware_suspected:<reason>`: the tripwire fired
+    (`mass_extension_change` or `ransom_notes`). Unlike the others it is
+    raised for **every** statement that carries a trip, since each one is a
+    new firing; it stays in `tamper_signals_active` until a quiet statement
+    arrives and in `events` after that;
   * chain and replay: `chain_broken` (wrong `prev`), `missing_seq` (seq
     numbers skipped: lost, dropped or withheld; also a lost-statement gap),
     `replay_old_seq`,
@@ -166,7 +174,10 @@ An in-toto Statement v1 (SPEC 6), canonical JSON, one subject:
      "edr":{"state":"ok","agents":{"items":[{"running":true,"vendor":"microsoft_defender_endpoint"}],
                                    "total":1,"truncated":false}},
      "bitlocker_os_volume":"on","firewall_profiles_on":3,
-     "vulnerable_driver_blocklist":"default","memory_integrity":"on"}}}
+     "vulnerable_driver_blocklist":"default","memory_integrity":"on"},
+   "tripwire":{"state":"ok","triggered":false,"reason":"none","window":"60s","folders_watched":4,
+               "renamed":"1_9","extension_changed":"0","modified":"10_99","deleted":"0",
+               "suspicious_created":"0","unknown_activity":"0"}}}
 ```
 
 (Keys are sorted in the real bytes; shown grouped here.)
@@ -194,6 +205,17 @@ An in-toto Statement v1 (SPEC 6), canonical JSON, one subject:
   because the processor was busy (`deferred_s`), and whether the heavy
   checks were skipped to save battery (`heavy_checks_skipped`; BitLocker
   and memory integrity then read `unknown`). See `docs/windows-service.md`.
+* **`tripwire`** (SPEC 6.5) is the ransomware tripwire (`docs/tripwire.md`).
+  `state` is `ok` while it watches at least one folder, `unknown` when it
+  could not watch any (or is turned off in the settings), and
+  `not_applicable` outside Windows; when not `ok` it carries only `state`.
+  `triggered` says it fired since the previous statement, with a `reason`.
+  The six counts are buckets (`0`, `1_9`, `10_99`, `100_999`,
+  `1000_plus`) of the changes in the window that tripped, or in the busiest
+  window since the previous statement. No path, file name, extension or
+  process name is ever in it. When it fires, the agent sends a statement
+  at once (at most one per cooldown, ten minutes by default) that
+  announces the time left until the scheduled one as `interval_s`.
 * **No `tenant`** until endpoint enrollment ships, and `seq` 1 links to the
   all-zero `prev` (SPEC 6.5). Such statements are verified one by one by the
   receiver that holds the device key and cannot go into a Proof Pack.

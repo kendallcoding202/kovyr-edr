@@ -44,6 +44,9 @@ const (
 	EvFutureTimestamp  = "future_timestamp"
 	EvOutOfOrder       = "out_of_order"
 	EvStale            = "stale_statement" // info: delivered too late; the next report shows missing_seq
+	// EvRansomware: the tripwire fired (file activity like ransomware's).
+	// Raised for every statement that says so: each is a new firing.
+	EvRansomware = "ransomware_suspected"
 )
 
 // SPEC section 8 limits (as in the engine's tlog.Server).
@@ -62,7 +65,12 @@ var tamperKinds = map[string]bool{
 	EvProtectionOff: true, EvTamperOff: true, EvEDRNotRunning: true, EvChainBroken: true,
 	EvReplayOldSeq: true, EvReplayNonce: true, EvUnknownNonce: true, EvMissingSeq: true,
 	EvBadSignature: true, EvInvalidStatement: true, EvFutureTimestamp: true, EvOutOfOrder: true,
+	EvRansomware: true,
 }
+
+// everyTime are condition kinds raised for every statement that shows
+// them, not only when they appear.
+var everyTime = map[string]bool{EvRansomware: true}
 
 // Event is one thing that happened to a device.
 type Event struct {
@@ -327,8 +335,8 @@ func (r *Receiver) receive(raw []byte, now time.Time, replaying bool) Result {
 	}
 	conds := conditions(st)
 	for _, k := range sortedKeys(conds) {
-		if !d.active[k] {
-			kind, detail, _ := strings.Cut(k, ":")
+		kind, detail, _ := strings.Cut(k, ":")
+		if !d.active[k] || everyTime[kind] {
 			events = append(events, ev(kind, st.Seq, detail))
 		}
 	}
@@ -396,6 +404,9 @@ func conditions(st *proof.Statement) map[string]bool {
 				c[EvEDRNotRunning+":"+a.Vendor.String()] = true
 			}
 		}
+	}
+	if tw := rd.Tripwire; tw.Triggered { // the schema allows a trip only while watching
+		c[EvRansomware+":"+tw.Reason.String()] = true
 	}
 	return c
 }

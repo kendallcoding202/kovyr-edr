@@ -34,6 +34,10 @@ var wantVocabulary = []string{
 	"trend_micro", "symantec",
 	// attester kind
 	"device_agent",
+	// tripwire reason, window and count buckets
+	"none", "mass_extension_change", "ransom_notes",
+	"10s", "30s", "60s", "120s", "300s",
+	"0", "1_9", "10_99", "100_999", "1000_plus",
 }
 
 var (
@@ -104,7 +108,7 @@ func forbiddenStrings(v any, key, path string) []string {
 func TestVocabularyIsExactlyTheAllowlist(t *testing.T) {
 	got := map[string]bool{}
 	for _, table := range [][]string{availabilityNames, toggleNames, blocklistNames, volumeNames,
-		runningModeNames, vendorNames, attesterKindNames} {
+		runningModeNames, vendorNames, attesterKindNames, tripReasonNames, tripWindowNames, bucketNames} {
 		for _, n := range table {
 			if n == "" {
 				continue
@@ -156,6 +160,8 @@ func healthyReadings() Readings {
 		FirewallProfilesOn: 3,
 		DriverBlocklist:    BlocklistDefault,
 		MemoryIntegrity:    ToggleOn,
+		Tripwire: Tripwire{State: AvailOK, Window: TripWindow60s, FoldersWatched: 4,
+			Counts: TripCounts{Renamed: Bucket1to9, Modified: Bucket10to99}},
 	}
 }
 
@@ -233,6 +239,17 @@ func randomReadings(r *rand.Rand) Readings {
 	out.FirewallProfilesOn = int8(r.IntN(5) - 1)
 	out.DriverBlocklist = BlocklistState(pick(blocklistNames, true))
 	out.MemoryIntegrity = Toggle(pick(toggleNames, true))
+	if st := Availability(pick(availabilityNames, true)); st == AvailOK {
+		b := func() TripBucket { return TripBucket(pick(bucketNames, true)) }
+		out.Tripwire = Tripwire{State: st, Window: TripWindow(pick(tripWindowNames, false)),
+			FoldersWatched: uint8(r.IntN(MaxTripwireFolders + 1)),
+			Counts:         TripCounts{b(), b(), b(), b(), b(), b()}}
+		if r.IntN(2) == 0 {
+			out.Tripwire.Triggered, out.Tripwire.Reason = true, TripReason(pick(tripReasonNames, false))
+		}
+	} else {
+		out.Tripwire = Tripwire{State: st}
+	}
 	return out
 }
 
@@ -326,11 +343,23 @@ func TestBuilderRefusesValuesOutsideTheVocabulary(t *testing.T) {
 		"age -2":                func(h *Header, r *Readings, p *SensorHealth) { r.Defender.SignatureAgeDays = -2 },
 		"seq zero":              func(h *Header, r *Readings, p *SensorHealth) { h.Seq = 0 },
 		"no interval":           func(h *Header, r *Readings, p *SensorHealth) { h.Schedule.IntervalS = 0 },
-		"interval 2h":           func(h *Header, r *Readings, p *SensorHealth) { h.Schedule.IntervalS = 7200 },
-		"deferral 2h":           func(h *Header, r *Readings, p *SensorHealth) { h.Schedule.DeferredS = 7200 },
-		"no salt":               func(h *Header, r *Readings, p *SensorHealth) { h.Salt = Salt{} },
-		"no nonce":              func(h *Header, r *Readings, p *SensorHealth) { h.Nonce = Nonce{} },
-		"no time":               func(h *Header, r *Readings, p *SensorHealth) { h.ObservedAt = time.Time{} },
+		"trip without a reason": func(h *Header, r *Readings, p *SensorHealth) { r.Tripwire.Triggered = true },
+		"reason without a trip": func(h *Header, r *Readings, p *SensorHealth) { r.Tripwire.Reason = TripRansomNotes },
+		"no window":             func(h *Header, r *Readings, p *SensorHealth) { r.Tripwire.Window = 0 },
+		"window 9":              func(h *Header, r *Readings, p *SensorHealth) { r.Tripwire.Window = 9 },
+		"bucket 7":              func(h *Header, r *Readings, p *SensorHealth) { r.Tripwire.Counts.Deleted = 7 },
+		"33 folders":            func(h *Header, r *Readings, p *SensorHealth) { r.Tripwire.FoldersWatched = 33 },
+		"trip while not watching": func(h *Header, r *Readings, p *SensorHealth) {
+			r.Tripwire = Tripwire{State: AvailUnknown, Triggered: true, Reason: TripMassExtensionChange}
+		},
+		"counts while not watching": func(h *Header, r *Readings, p *SensorHealth) {
+			r.Tripwire.State = AvailNotApplicable
+		},
+		"interval 2h": func(h *Header, r *Readings, p *SensorHealth) { h.Schedule.IntervalS = 7200 },
+		"deferral 2h": func(h *Header, r *Readings, p *SensorHealth) { h.Schedule.DeferredS = 7200 },
+		"no salt":     func(h *Header, r *Readings, p *SensorHealth) { h.Salt = Salt{} },
+		"no nonce":    func(h *Header, r *Readings, p *SensorHealth) { h.Nonce = Nonce{} },
+		"no time":     func(h *Header, r *Readings, p *SensorHealth) { h.ObservedAt = time.Time{} },
 	}
 	for name, mutate := range cases {
 		h, r, p := testHeader(1), healthyReadings(), testSensor
@@ -482,6 +511,11 @@ func TestVocabularyMatchesTheSpecSchema(t *testing.T) {
 		{availabilityNames, []string{"security_center", "state"}},
 		{availabilityNames, []string{"defender", "state"}},
 		{availabilityNames, []string{"edr", "state"}},
+		{availabilityNames, []string{"..", "tripwire", "state"}},
+		{tripReasonNames, []string{"..", "tripwire", "reason"}},
+		{tripWindowNames, []string{"..", "tripwire", "window"}},
+		{bucketNames, []string{"..", "tripwire", "renamed"}},
+		{bucketNames, []string{"..", "tripwire", "unknown_activity"}},
 		{toggleNames, []string{"defender", "real_time_protection"}},
 		{toggleNames, []string{"defender", "tamper_protection"}},
 		{toggleNames, []string{"memory_integrity"}},
@@ -490,7 +524,11 @@ func TestVocabularyMatchesTheSpecSchema(t *testing.T) {
 		{volumeNames, []string{"bitlocker_os_volume"}},
 		{blocklistNames, []string{"vulnerable_driver_blocklist"}},
 	} {
-		if got, want := setOf(c.table), setOf(enumAt(t, prot, c.path...)); !reflect.DeepEqual(got, want) {
+		root, path := prot, c.path
+		if path[0] == ".." {
+			root, path = posture.EndpointPredicateSpec(), path[1:]
+		}
+		if got, want := setOf(c.table), setOf(enumAt(t, root, path...)); !reflect.DeepEqual(got, want) {
 			t.Errorf("%v: agent vocabulary %v, SPEC %v", c.path, keys(got), keys(want))
 		}
 	}
@@ -610,6 +648,9 @@ func TestBuilderReproducesTheEndpointVector(t *testing.T) {
 		FirewallProfilesOn: 3,
 		DriverBlocklist:    BlocklistDefault,
 		MemoryIntegrity:    ToggleOff,
+		Tripwire: Tripwire{State: AvailOK, Triggered: true, Reason: TripMassExtensionChange, Window: TripWindow60s, FoldersWatched: 6,
+			Counts: TripCounts{Renamed: Bucket100to999, ExtensionChanged: Bucket100to999, Modified: Bucket100to999,
+				SuspiciousCreated: Bucket1to9}},
 	}
 	payload, err := BuildStatement(s.Public(), h, SensorHealth{SensorRunning: true}, r)
 	if err != nil {
@@ -621,5 +662,14 @@ func TestBuilderReproducesTheEndpointVector(t *testing.T) {
 	env, err := SignEnvelope(payload, s)
 	if err != nil || string(env.Canonical()) != v.Envelope {
 		t.Fatalf("envelope differs from the SPEC vector: %v", err)
+	}
+}
+
+func TestBucketOf(t *testing.T) {
+	for n, want := range map[uint32]TripBucket{0: Bucket0, 1: Bucket1to9, 9: Bucket1to9, 10: Bucket10to99, 99: Bucket10to99,
+		100: Bucket100to999, 999: Bucket100to999, 1000: Bucket1000Plus, 1 << 31: Bucket1000Plus} {
+		if got := BucketOf(n); got != want {
+			t.Errorf("BucketOf(%d) = %s, want %s", n, got, want)
+		}
 	}
 }

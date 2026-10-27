@@ -161,8 +161,9 @@ func (p plan) schedule() proof.Schedule {
 }
 
 // decide is called when a heartbeat is due (scheduled at due). It returns
-// either a plan for a heartbeat now, or how long to defer it.
-func (a *Agent) decide(now, due time.Time) (p plan, deferBy time.Duration) {
+// either a plan for a heartbeat now, or how long to defer it. An urgent
+// heartbeat (the tripwire fired) is never deferred.
+func (a *Agent) decide(now, due time.Time, urgent bool) (p plan, deferBy time.Duration) {
 	th := a.cfg.Throttle
 	p.interval = a.cfg.Interval
 	if a.cfg.Conditions != nil {
@@ -188,7 +189,7 @@ func (a *Agent) decide(now, due time.Time) (p plan, deferBy time.Duration) {
 	if late < 0 {
 		late = 0
 	}
-	if pct, ok := a.load.busy(now); ok && pct > th.BusyPercent && late+th.DeferStep <= th.maxDefer(a.cfg.Interval) {
+	if pct, ok := a.load.busy(now); ok && !urgent && pct > th.BusyPercent && late+th.DeferStep <= th.maxDefer(a.cfg.Interval) {
 		if !a.deferredDue.Equal(due) {
 			a.deferredDue = due
 			a.cfg.Logf("processor %d%% busy over the last %v: heartbeat deferred (at most %v)", pct, th.Window, th.maxDefer(a.cfg.Interval))

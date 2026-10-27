@@ -215,6 +215,10 @@ var (
 	// vendors get new values; values are never reused.
 	edrVendorVals = []string{"bitdefender", "carbon_black", "cortex_xdr", "crowdstrike", "eset", "huntress",
 		"malwarebytes", "microsoft_defender_endpoint", "sentinelone", "sophos", "symantec", "trend_micro", "webroot"}
+	tripReasonVals = []string{"mass_extension_change", "none", "ransom_notes"}
+	tripWindowVals = []string{"10s", "120s", "300s", "30s", "60s"}
+	// Count buckets: 0, 1-9, 10-99, 100-999, 1000 or more.
+	bucketVals = []string{"0", "1000_plus", "100_999", "10_99", "1_9"}
 )
 
 // Endpoint caps.
@@ -229,6 +233,8 @@ const (
 	MaxVersionNumber = 1<<53 - 1
 	// unknownInt is the integer value for "unknown or not applicable".
 	unknownInt = -1
+	// MaxTripwireFolders caps tripwire.folders_watched.
+	MaxTripwireFolders = 32
 	// Heartbeat interval bounds for schedule.interval_s, in seconds.
 	MinHeartbeatIntervalS = 60
 	MaxHeartbeatIntervalS = 3600
@@ -304,6 +310,24 @@ func protectionSpec() *Spec {
 	})
 }
 
+// tripwireSpec is the ransomware tripwire (SPEC 6.5): bucketed counts
+// only. That reason is none exactly when triggered is false is checked in
+// ValidateValue (the schema language cannot switch on a boolean).
+func tripwireSpec() *Spec {
+	return byState(func() map[string]*Spec {
+		f := map[string]*Spec{
+			"triggered":       boolean(),
+			"reason":          enum(tripReasonVals...),
+			"window":          enum(tripWindowVals...),
+			"folders_watched": integer(0, MaxTripwireFolders),
+		}
+		for _, k := range []string{"renamed", "extension_changed", "modified", "deleted", "suspicious_created", "unknown_activity"} {
+			f[k] = enum(bucketVals...)
+		}
+		return f
+	}, func() map[string]*Spec { return map[string]*Spec{} })
+}
+
 // EndpointPredicateSpec is the schema of an endpoint/v1 predicate (SPEC
 // 6.5): the posture common fields without tenant (it arrives with
 // endpoint enrollment), the agent's version, its own health and the
@@ -327,6 +351,7 @@ func EndpointPredicateSpec() *Spec {
 			"heavy_checks_skipped": boolean(),
 		}),
 		"protection": protectionSpec(),
+		"tripwire":   tripwireSpec(),
 	})
 }
 

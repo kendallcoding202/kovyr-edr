@@ -102,6 +102,7 @@ func TestServiceStatusOutsideWindows(t *testing.T) {
 // receiver with the installed settings and returns cleanly on stop.
 func TestServiceMainReportsAndStopsCleanly(t *testing.T) {
 	useHealthyFake(t)
+	noUserFolders(t)
 	dir := filepath.Join(t.TempDir(), "Kovyr")
 	if code, _, errs := runCLI(t, "keygen", "--state-dir", dir); code != 0 {
 		if runtime.GOOS == "windows" && strings.Contains(errs, "administrator") {
@@ -120,6 +121,7 @@ func TestServiceMainReportsAndStopsCleanly(t *testing.T) {
 	defer srv.Close()
 	s := config.Defaults()
 	s.Server, s.DevInsecure, s.IntervalS = srv.URL, true, 60
+	s.Tripwire.Folders = []string{t.TempDir(), t.TempDir()}
 	if err := s.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -137,6 +139,7 @@ func TestServiceMainReportsAndStopsCleanly(t *testing.T) {
 	if l := r.Status().Devices[0].Latest; l == nil || l.IntervalS != 60 {
 		t.Fatalf("latest %+v", l)
 	}
+	wantTripwire(t, r.Status().Devices[0].Latest, 2)
 	cancel()
 	select {
 	case err := <-done:

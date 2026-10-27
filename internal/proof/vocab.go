@@ -122,6 +122,61 @@ const (
 
 var keyProtectionNames = []string{"", "software", "tpm2"}
 
+// TripReason is which tripwire rule fired (SPEC 6.5 tripwire.reason).
+type TripReason uint8
+
+const (
+	TripNone                TripReason = iota // not triggered
+	TripMassExtensionChange                   // many renames, most to a new extension
+	TripRansomNotes                           // ransom-note or random names during a burst
+)
+
+var tripReasonNames = []string{"none", "mass_extension_change", "ransom_notes"}
+
+// TripWindow is the tripwire's sliding window. Zero is not a window; the
+// builder refuses it when the tripwire is watching.
+type TripWindow uint8
+
+const (
+	tripWindowInvalid TripWindow = iota
+	TripWindow10s
+	TripWindow30s
+	TripWindow60s
+	TripWindow120s
+	TripWindow300s
+)
+
+var tripWindowNames = []string{"", "10s", "30s", "60s", "120s", "300s"}
+
+// TripBucket is a bucketed count, so a statement never shows exactly how
+// many files someone changed.
+type TripBucket uint8
+
+const (
+	Bucket0 TripBucket = iota
+	Bucket1to9
+	Bucket10to99
+	Bucket100to999
+	Bucket1000Plus
+)
+
+var bucketNames = []string{"0", "1_9", "10_99", "100_999", "1000_plus"}
+
+// BucketOf buckets a count.
+func BucketOf(n uint32) TripBucket {
+	switch {
+	case n == 0:
+		return Bucket0
+	case n < 10:
+		return Bucket1to9
+	case n < 100:
+		return Bucket10to99
+	case n < 1000:
+		return Bucket100to999
+	}
+	return Bucket1000Plus
+}
+
 // attesterKindNames has one value: this agent is a device agent.
 var attesterKindNames = []string{"device_agent"}
 
@@ -149,6 +204,9 @@ func (v VolumeProtection) String() string { return nameOr(volumeNames, uint8(v))
 func (v RunningMode) String() string      { return nameOr(runningModeNames, uint8(v)) }
 func (v Vendor) String() string           { return nameOr(vendorNames, uint8(v)) }
 func (v KeyProtection) String() string    { return nameOr(keyProtectionNames, uint8(v)) }
+func (v TripReason) String() string       { return nameOr(tripReasonNames, uint8(v)) }
+func (v TripWindow) String() string       { return nameOr(tripWindowNames, uint8(v)) }
+func (v TripBucket) String() string       { return nameOr(bucketNames, uint8(v)) }
 
 func nameOr(table []string, v uint8) string {
 	if n, err := enumName(table, v); err == nil {

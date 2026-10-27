@@ -24,6 +24,8 @@ func endpointStatement(dev sigs.Signer) map[string]any {
 			"sensor_health": map[string]any{"sensor_running": true, "tamper_detected": false,
 				"driver_blocklist_version": int64(0), "policy_version": int64(0)},
 			"schedule": map[string]any{"interval_s": int64(900), "deferred_s": int64(0), "heavy_checks_skipped": false},
+			"tripwire": map[string]any{"state": "ok", "triggered": false, "reason": "none", "window": "60s", "folders_watched": int64(4),
+				"renamed": "1_9", "extension_changed": "0", "modified": "10_99", "deleted": "0", "suspicious_created": "0", "unknown_activity": "0"},
 			"protection": map[string]any{
 				"security_center": map[string]any{"state": "ok", "products": int64(1), "enabled": int64(1), "up_to_date": int64(1)},
 				"defender": map[string]any{"state": "ok", "am_service": "on", "antivirus": "on", "real_time_protection": "on",
@@ -187,6 +189,37 @@ func TestEndpointRefusesBadContent(t *testing.T) {
 		},
 		"firewall 4":  func(o map[string]any) { epProt(o)["firewall_profiles_on"] = int64(4) },
 		"no schedule": func(o map[string]any) { delete(epPred(o), "schedule") },
+		"no tripwire": func(o map[string]any) { delete(epPred(o), "tripwire") },
+		"raw count": func(o map[string]any) {
+			epPred(o)["tripwire"].(map[string]any)["renamed"] = int64(412)
+		},
+		"exact count as text": func(o map[string]any) {
+			epPred(o)["tripwire"].(map[string]any)["renamed"] = "412"
+		},
+		"file name": func(o map[string]any) {
+			epPred(o)["tripwire"].(map[string]any)["last_file"] = "taxes2025.pdf.locked"
+		},
+		"extension": func(o map[string]any) {
+			epPred(o)["tripwire"].(map[string]any)["new_extension"] = "locked"
+		},
+		"process name": func(o map[string]any) {
+			epPred(o)["tripwire"].(map[string]any)["process"] = "evil.exe"
+		},
+		"window as seconds": func(o map[string]any) {
+			epPred(o)["tripwire"].(map[string]any)["window"] = int64(60)
+		},
+		"trip without a reason": func(o map[string]any) {
+			epPred(o)["tripwire"].(map[string]any)["triggered"] = true
+		},
+		"reason without a trip": func(o map[string]any) {
+			epPred(o)["tripwire"].(map[string]any)["reason"] = "ransom_notes"
+		},
+		"counts when not watching": func(o map[string]any) {
+			epPred(o)["tripwire"].(map[string]any)["state"] = "unknown"
+		},
+		"33 folders": func(o map[string]any) {
+			epPred(o)["tripwire"].(map[string]any)["folders_watched"] = int64(33)
+		},
 		"interval too long": func(o map[string]any) {
 			epPred(o)["schedule"].(map[string]any)["interval_s"] = int64(86400)
 		},
@@ -220,8 +253,22 @@ func TestEndpointRefusesBadContent(t *testing.T) {
 			t.Errorf("security_center.%s = 0 accepted when state is unknown", k)
 		}
 	}
-	// A full list with truncated set is allowed: total says how many.
+	// A trip with its reason, and a tripwire that is not watching.
 	o := endpointStatement(dev)
+	tw := epPred(o)["tripwire"].(map[string]any)
+	tw["triggered"], tw["reason"], tw["extension_changed"] = true, "mass_extension_change", "100_999"
+	if err := validateEndpoint(t, o); err != nil {
+		t.Errorf("a trip refused: %v", err)
+	}
+	for _, st := range []string{"unknown", "not_applicable"} {
+		o = endpointStatement(dev)
+		epPred(o)["tripwire"] = map[string]any{"state": st}
+		if err := validateEndpoint(t, o); err != nil {
+			t.Errorf("tripwire %s refused: %v", st, err)
+		}
+	}
+	// A full list with truncated set is allowed: total says how many.
+	o = endpointStatement(dev)
 	epObj(o, "edr")["agents"] = map[string]any{"items": agentItems(nine[:EDRAgentsMaxItems]...), "total": int64(9), "truncated": true}
 	if err := validateEndpoint(t, o); err != nil {
 		t.Errorf("truncated full list refused: %v", err)
@@ -238,7 +285,8 @@ func TestEndpointSchemaShape(t *testing.T) {
 	if _, ok := p["tenant"]; ok {
 		t.Fatal("tenant must stay out of endpoint/v1 until endpoint enrollment (SPEC 6.5)")
 	}
-	for _, vals := range [][]string{availabilityVals, toggleVals, runningModeVals, volumeVals, blocklistVals, edrVendorVals} {
+	for _, vals := range [][]string{availabilityVals, toggleVals, runningModeVals, volumeVals, blocklistVals, edrVendorVals,
+		tripReasonVals, tripWindowVals, bucketVals} {
 		for i := 1; i < len(vals); i++ {
 			if vals[i-1] >= vals[i] {
 				t.Errorf("enum %v is not sorted", vals)

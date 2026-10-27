@@ -15,7 +15,7 @@ copy kovyr-agent.exe "C:\Program Files\Kovyr\"
 cd "C:\Program Files\Kovyr"
 kovyr-agent keygen
 kovyr-agent enroll --print-pubkey        (add the output to the receiver's devices file)
-kovyr-agent service install --server https://RECEIVER [--interval 15m]
+kovyr-agent service install --server https://RECEIVER [--interval 15m] [--watch D:\ClientFiles]
 kovyr-agent service start
 kovyr-agent service status
 ```
@@ -76,6 +76,10 @@ to start and logs why). Restart the service after editing it.
 | `load.max_defer_s` | `300` | 1 to 1800 | longest total deferral (and never more than a third of the interval) |
 | `log.max_file_bytes` | `1048576` | 64 KiB to 8 MiB | size of one log file |
 | `log.files` | `5` | 1 to 10 | number of log files kept |
+| `tripwire.enabled` | `true` | | run the ransomware tripwire |
+| `tripwire.user_folders` | `true` | | watch each user's Desktop and Documents (`--no-user-folders` turns it off) |
+| `tripwire.folders` | `[]` | at most 16 absolute paths | more data folders to watch (`--watch DIR`, repeatable) |
+| `tripwire.window_s`, `min_activity`, … | see `docs/tripwire.md` | | the tripwire thresholds |
 
 ## Backing off
 

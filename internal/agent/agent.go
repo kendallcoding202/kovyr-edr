@@ -1,6 +1,6 @@
 // Package agent is the heartbeat loop: every interval it fetches a
 // challenge, runs the checks, signs a statement, queues it on disk and
-// sends the queue oldest first.
+// sends the queue newest first (see Flush).
 //
 // SPEC section 8: every report carries a one-time server nonce issued for
 // this device, and ingest refuses nonces older than 10 minutes and
@@ -293,31 +293,113 @@ func (a *Agent) seal(nonce proof.Nonce, r proof.Readings, sched proof.Schedule) 
 	return env, st, nil
 }
 
-// Flush sends queued envelopes oldest first. It stops at the first
-// transient failure (so order is kept) and returns that error.
+// What the agent must assume of ingest (SPEC section 8): a nonce expires
+// 10 minutes after it is issued, and a seq at or below the last accepted
+// one is refused as a replay.
+const serverNonceLifetime = 10 * time.Minute
+
+// maxSendAge is the age past which a queued statement is certainly
+// refused: its nonce was issued before the statement was signed, so the
+// nonce is older still. The extra minute covers a small clock step.
+const maxSendAge = serverNonceLifetime + time.Minute
+
+// Flush sends the queue newest first, and stops at the first transient
+// failure, returning that error. The newest statement is the one that
+// says how the computer is now, and after an outage it must not wait
+// behind a backlog the server can only refuse (and that would spend the
+// server's per-device rate limit). So (docs/api.md, "The queue"):
+//
+//   - a statement older than maxSendAge, or not signed by this device, is
+//     dropped unsent;
+//   - once the server accepts a statement, every older one is dropped
+//     unsent: ingest refuses a seq at or below the last one it accepted;
+//   - a statement the server refuses is dropped, and the next newest is
+//     tried.
+//
+// The server records every dropped statement as a lost report (SPEC 8).
 func (a *Agent) Flush(ctx context.Context) error {
+	if err := a.dropUnsendable(); err != nil {
+		return err
+	}
 	for {
-		seq, env, ok, err := a.queue.Oldest()
-		if err != nil {
+		seq, env, ok, err := a.queue.Newest()
+		if err != nil || !ok {
 			return err
-		}
-		if !ok {
-			return nil
 		}
 		cctx, cancel := context.WithTimeout(ctx, requestTimeout)
 		err = a.transport.PostHeartbeat(cctx, env)
 		cancel()
 		switch {
 		case err == nil:
+			if err := a.queue.Remove(seq); err != nil {
+				return err
+			}
+			return a.dropOlder(seq)
 		case errors.Is(err, ErrRefused):
 			a.cfg.Logf("server refused statement %d (%v); dropping it", seq, err)
+			if err := a.queue.Remove(seq); err != nil {
+				return err
+			}
 		default:
 			return err
+		}
+	}
+}
+
+// dropUnsendable removes queued statements the server can never accept:
+// files that are not this device's statements, and statements older than
+// maxSendAge.
+func (a *Agent) dropUnsendable() error {
+	seqs, err := a.queue.Seqs()
+	if err != nil {
+		return err
+	}
+	now, stale := a.cfg.Clock.Now(), 0
+	for _, seq := range seqs {
+		env, err := a.queue.Get(seq)
+		var st *proof.Statement
+		if err == nil {
+			st, _, err = a.ownStatement(seq, env)
+		}
+		switch {
+		case err != nil:
+			a.cfg.Logf("queued file %d is not a statement signed by this device; removed", seq)
+		case now.Sub(st.ObservedAt) > maxSendAge:
+			stale++
+		default:
+			continue
 		}
 		if err := a.queue.Remove(seq); err != nil {
 			return err
 		}
 	}
+	if stale > 0 {
+		a.cfg.Logf("dropped %d queued statement(s) too old for the server to accept; it records them as lost reports", stale)
+	}
+	return nil
+}
+
+// dropOlder removes every queued statement older than seq, which the
+// server just accepted.
+func (a *Agent) dropOlder(seq uint32) error {
+	seqs, err := a.queue.Seqs()
+	if err != nil {
+		return err
+	}
+	n := 0
+	for _, s := range seqs {
+		if s >= seq {
+			break
+		}
+		if err := a.queue.Remove(s); err != nil {
+			return err
+		}
+		n++
+	}
+	if n > 0 {
+		a.cfg.Logf("dropped %d older queued statement(s): the server accepted a newer one, so it records them as lost reports", n)
+	}
+	return nil
 }
 
 // Run is the heartbeat loop. It beats immediately, then every interval

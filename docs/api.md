@@ -96,7 +96,7 @@ at most 16 KiB):
 |---|---|---|
 | `200`, `202` | accepted (or an exact re-delivery of the latest statement). `202` means "received, verification pending": halden stores the envelope and verifies it later, so a statement it then refuses also got a `202` | removes it from its queue |
 | `400`, `409`, `413`, `422` | refused for good: malformed, bad signature, invalid statement, replayed seq or nonce, unknown/expired/misdirected nonce, stale or future timestamp | drops it (the receiver keeps its own record) |
-| `401`, `403`, `404`, `429`, `5xx`, anything else | not now | keeps it queued; retries with exponential backoff and jitter, oldest first |
+| `401`, `403`, `404`, `429`, `5xx`, anything else | not now | keeps it queued; retries with exponential backoff and jitter, newest first (see "The queue" below) |
 
 The dev receiver answers with a small JSON body for people using `curl`
 (`outcome`, `seq`, `reason`, `events`). The agent never reads it.
@@ -264,6 +264,30 @@ only right after a challenge, and when it is offline it makes no statement:
 the receiver sees a gap ("silence is a signal"). Its on-disk queue (500
 entries / 5 MB, oldest dropped first) bridges short upload failures, not
 long offline periods.
+
+### The queue
+
+The agent sends its queue **newest first**: the newest statement says how
+the computer is now, and after an outage it must not wait behind a backlog
+that ingest can only refuse (halden also limits each device's uploads per
+hour). Before each send, and after each answer:
+
+1. A queued statement signed more than **11 minutes** ago (the 10-minute
+   nonce lifetime plus a minute for clock steps) is dropped unsent. Its
+   nonce was issued before it was signed, so ingest refuses it whatever the
+   clocks say.
+2. A queued file that is not a statement signed by this device's key is
+   removed unsent.
+3. Once the server accepts a statement (`200`/`202`), every older queued
+   statement is dropped unsent: ingest refuses a `seq` at or below the last
+   one it accepted.
+4. A refused statement (`400`/`409`/`413`/`422`) is dropped and the next
+   newest is tried; anything else stops the send until the retry.
+
+Every statement dropped this way shows at the receiver as a lost report
+(`missing_seq`, halden's `lost_reports_total`), which is the honest outcome.
+A statement between 5 and 11 minutes old is still sent, because a clock
+difference can make it acceptable.
 
 ## Spec decisions (Ticket 2)
 

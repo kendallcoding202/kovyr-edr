@@ -200,24 +200,33 @@ func serviceInstall(o installOptions, stdout, stderr io.Writer) int {
 
 	// The device key is the device's identity: its enrollment names it. So
 	// an existing key is only ever opened, never replaced; one that cannot
-	// be opened stops the install and stays as it is.
+	// be opened stops the install and stays as it is. Both paths first
+	// check that only SYSTEM and Administrators control the state
+	// directory (keystore.CheckDir): one someone else made or can change
+	// stops the install before anything is read from it or written to it.
 	var signer proof.Signer
 	keyNote := "kept the existing device key"
 	if hasKey {
 		if signer, err = keystore.Load(dir); err != nil {
+			if errors.Is(err, keystore.ErrUnsafeDir) {
+				return refuseUnsafeDir("install", err, stderr)
+			}
 			fmt.Fprintf(stderr, "the device key in %s cannot be opened (%v); it is left as it is. "+
 				"Delete it by hand only if you mean to re-enroll this device.\n", dir, err)
 			return 1
 		}
 	} else {
 		if signer, err = keystore.Generate(dir); err != nil {
+			if errors.Is(err, keystore.ErrUnsafeDir) {
+				return refuseUnsafeDir("install", err, stderr)
+			}
 			fmt.Fprintln(stderr, "keygen:", err)
 			return 1
 		}
 		keyNote = "created a new device key"
 	}
-	// The state directory exists now, made with its restrictive ACL by the
-	// key store, so the log can go inside it.
+	// The state directory exists now, and only SYSTEM and Administrators
+	// control it, so the log can go inside it.
 	say := installLog(dir, stdout)
 	defer say.close()
 	fail := func(format string, a ...any) int {
@@ -253,6 +262,15 @@ func serviceInstall(o installOptions, stdout, stderr io.Writer) int {
 	}
 	say.both("The %s service is running.", service.Name)
 	return 0
+}
+
+// refuseUnsafeDir reports a state directory the agent will not use. Its
+// own log is in that directory, so the reason also goes to the Windows
+// event log, where an administrator finds it after a failed MSI install.
+func refuseUnsafeDir(step string, err error, stderr io.Writer) int {
+	fmt.Fprintf(stderr, "%s: %v\n", step, err)
+	service.ReportError(fmt.Sprintf("Kovyr Protection Alarm %s refused: %v", step, err))
+	return 1
 }
 
 func onOff(b bool) string {
@@ -301,9 +319,20 @@ func (r *installRecorder) close() {
 	}
 }
 
-// runService is the process Windows starts. Its log is opened first, so
-// every later failure is recorded.
+// runService is the process Windows starts. The state directory is
+// checked first (keystore.CheckDir: only SYSTEM and Administrators may
+// control it, and a loose access list is repaired), before its settings,
+// log or key are touched. Then the log is opened, so every later failure
+// is recorded.
 func runService(dir string) int {
+	if err := keystore.CheckDir(dir); err != nil {
+		// Nowhere safe to log: the reason goes to the event log, and the
+		// service reports a failed start, so Windows' recovery actions
+		// try again later.
+		service.ReportError(fmt.Sprintf("The Kovyr Protection Alarm service did not start: %v", err))
+		service.Run(func(context.Context) error { return err }, func(string, ...any) {})
+		return 1
+	}
 	s, serr := config.Read(dir)
 	lc := config.Defaults().Log
 	if serr == nil {

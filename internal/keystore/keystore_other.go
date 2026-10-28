@@ -23,8 +23,26 @@ func PrepareDir(dir string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
+	return CheckDir(dir)
+}
+
+// CheckDir refuses a state directory that is a symbolic link or not a
+// directory, and makes it readable only by the current user. The full
+// owner and access-list check is Windows-only (keystore_windows.go); this
+// path is for development.
+func CheckDir(dir string) error {
+	fi, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	if !fi.IsDir() {
+		return unsafeDir(dir, "%s is a link or a file, not a folder.", dir)
+	}
 	return os.Chmod(dir, 0o700)
 }
+
+// protectKeyFile: the key file is already 0600 (os.CreateTemp).
+func protectKeyFile(path string) error { return nil }
 
 // seal stores the key unencrypted: this path is for development only and
 // the file says so.

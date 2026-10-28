@@ -23,6 +23,9 @@ func Start(timeout time.Duration) error     { return ErrWindowsOnly }
 func Stop(timeout time.Duration) error      { return ErrWindowsOnly }
 func Query() (Status, error)                { return Status{}, ErrWindowsOnly }
 
+// ReportError does nothing outside Windows.
+func ReportError(msg string) {}
+
 func Run(main func(ctx context.Context) error, logf func(string, ...any)) error {
 	return ErrWindowsOnly
 }

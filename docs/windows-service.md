@@ -51,7 +51,10 @@ ACL. It runs the test kit's scripts (including the ransomware test)
 against the installed service, installs a second build over it (same
 device, chain continues), uninstalls (key kept), reinstalls (same device)
 and uninstalls again, and checks that it refuses to install over a
-service set up by hand and leaves that service alone.
+service set up by hand and leaves that service alone. The state folder
+checks (below) run on a real NTFS volume in the `internal/keystore` tests
+on `windows-latest`: a folder a user owns is refused, a loose access list
+is repaired, and an earlier version's folder is accepted.
 
 ## Install by hand
 
@@ -72,6 +75,7 @@ kovyr-agent service status
 
 * the prompt is not elevated (also `uninstall`, `start` and `stop`);
 * there is no device key yet;
+* the state folder is not safe (next section);
 * `kovyr-agent.exe` is not under Program Files. A service runs as SYSTEM,
   so a binary in a folder a user can write to (Downloads, Desktop, Temp)
   would let that user run code as SYSTEM by replacing it;
@@ -96,6 +100,39 @@ it does not start. The MSI uses both.
 `service uninstall` stops and removes the service. It keeps the state
 directory (device key, chain state, queue, settings and logs), because a
 new key means a new enrollment.
+
+## The state folder
+
+`C:\ProgramData\Kovyr` holds the device key. Its access list is the only
+thing that keeps other users from the key: DPAPI in machine scope ties
+the sealed key to this computer, but any process on it can unseal it.
+Any user can create a folder in `C:\ProgramData`, so the agent never
+trusts one it finds there. At install, at `keygen` and every time the
+service starts, before it reads or writes anything in it
+(`keystore.CheckDir`):
+
+* a folder that is a junction or link, or whose owner is not SYSTEM or
+  Administrators, is refused. Someone without administrator rights may
+  have made it before Kovyr was installed (and planted a key they know).
+  The agent does not take it over. **Delete the folder and install
+  again**; the device gets a new key, so enroll it again and revoke the
+  old one;
+* a folder Administrators or SYSTEM own whose access list lets anyone
+  else in is repaired (protected list: SYSTEM and Administrators only),
+  unless what is inside shows that access may have been used (an entry
+  someone else owns, a link, or a device key others could read): then it
+  is refused the same way;
+* the key file has its own protected access list (SYSTEM and
+  Administrators), not only what the folder passes down; a key file
+  someone else owns or can open is refused. A key file from an earlier
+  version, which only inherited the folder's list, gets its own.
+
+A refusal cannot go to the agent's log, which is in that folder. The
+console shows it, and it goes to the Windows **Application** event log,
+source `KovyrAgent` (Event Viewer says the source's description is
+missing; the text follows). A failed MSI install for this reason looks
+like any other rolled-back install, so look there. At service start the
+service then stops with an error and Windows' recovery actions retry it.
 
 ## Stop and shutdown
 

@@ -505,9 +505,18 @@ two (tenant, then attester).
 * **Server nonce.** Before each report the attester asks the ingest server
   for a 128-bit nonce, issued for that attester and used once. The server
   refuses unknown, reused, expired (older than 10 minutes) or misdirected
-  nonces, and statements whose `observed_at` is more than 5 minutes from its
-  clock. Offline, verifiers check that no nonce appears twice in a pack.
-* **Offline periods are gaps.** Because of the nonce and the clock window,
+  nonces. Offline, verifiers check that no nonce appears twice in a pack.
+* **A wrong clock.** A fresh, single-use nonce already proves the report
+  was made in the last 10 minutes, whatever the attester's clock says. So a
+  report whose `observed_at` is more than 5 minutes from the server's clock
+  is still **accepted for alerting and status**: a PC with a fast or slow
+  clock (a dead CMOS battery, a wrong time zone) must not lose a ransomware
+  trip. The server uses its own receive time for every time calculation,
+  records that the attester's clock is skewed (and by how much, as an
+  integer), and never treats the skew as an alert condition. Such a report
+  fails the clock check in section 9, so it is **not appended to the log
+  as timed evidence**; it is disclosed as a clock-skewed report.
+* **Offline periods are gaps.** Because of the nonce,
   an attester that cannot reach the ingest server makes no report at all;
   the silence shows as a gap (section 13). Nothing is signed offline for
   later upload (see section 18 for a possible lower-strength offline
@@ -535,8 +544,9 @@ The log is a public, append-only Merkle tree of **commitments**:
 * **Ingest checks** (before anything is logged): canonical, schema-valid
   statement; a known, matching enrollment; valid signature(s); fresh unused
   nonce; `seq` greater than the last accepted one; `prev` matching when
-  `seq` is exactly one more; clock within ±5 minutes. Then two timestamps are
-  requested and the digest is appended. A `seq` more than one ahead is
+  `seq` is exactly one more; clock within ±5 minutes (a report that passes
+  every other check but not this one is kept for alerting only, section 8).
+  Then two timestamps are requested and the digest is appended. A `seq` more than one ahead is
   accepted and its hole recorded as a lost-report gap (section 8); a `seq` at
   or below the last is a replay and refused.
 * **Evidence.** The envelope, its timestamp tokens and its leaf index form

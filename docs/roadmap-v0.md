@@ -132,6 +132,36 @@ In rough order. Each one gets its own branch and review.
 8. **TPM-backed key.** A key in the Microsoft Platform Crypto Provider behind
    `proof.Signer`, with TPM attestation. It makes the key `tpm2` instead of
    `software`, and "hardware" strength once the attestation is verified.
+9. **Patch status (read-only).** Report whether each computer is keeping up
+   with Windows updates, so halden can flag a computer that falls behind and
+   a Proof Pack can show "every computer patched within 30 days" (the
+   insurance question "do you apply critical patches within 30 days?"). The
+   agent only **reads**: it never installs, downloads, searches for or
+   schedules updates, and never restarts the computer. Installing updates
+   stays with a separate tool the firm or its IT provider runs (for example
+   Action1 or Microsoft Intune).
+   * **Spec first:** add a `patching` section to SPEC 6.5 `endpoint/v1`.
+     Integers, booleans, enums and timestamps only (no update titles or KB
+     text), like the rest of the statement.
+   * **Proposed fields:** `os_build` and `os_ubr` (the Windows build and its
+     monthly update revision), `last_quality_update_at` (day precision),
+     `reboot_pending`, `auto_update` (`on`, `notify_only`, `off`,
+     `managed`, `unknown`) and `update_service` (`running`, `stopped`,
+     `disabled`, `unknown`). Any read that fails reports `unknown`.
+   * **Read-only sources:** `CurrentBuild` and `UBR` under
+     `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion`; the local update
+     history from the Windows Update Agent (`QueryHistory`, never `Search`,
+     which can contact Microsoft); the standard reboot-pending registry keys;
+     the Windows Update policy keys; and the state of the update services.
+     Run with the heavy checks, at most every few hours.
+   * **halden:** no real-time alert. The digest lists a computer more than
+     30 days past its last quality update, or more than one monthly release
+     behind (halden keeps a small table of current Windows builds, which the
+     security watch can keep up to date). The dashboard shows the same.
+   * **Proof:** a claim that, over the pack's period, each computer's last
+     quality update was never more than N days old, with any gaps disclosed.
+   * **Order:** after the Step 3 re-review and the first pilot computer. The
+     macOS equivalent comes with the macOS agent (v1).
 
 ## Smaller follow-ups found while building part 1
 

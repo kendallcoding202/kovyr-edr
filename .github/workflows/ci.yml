@@ -3,7 +3,8 @@ name: ci
 # kovyr-edr is public: anyone's pull request, from any fork, runs this
 # workflow. So nothing a pull request run makes may look official (only
 # publish-test-kit, on main, uploads the test kit), every action is pinned
-# to a commit, and no checkout keeps the GitHub token.
+# to a commit, and no checkout keeps the GitHub token. The rules are
+# checked by .github/scripts/check-policy.sh (the policy job).
 
 on:
   push:
@@ -20,6 +21,17 @@ permissions:
   contents: read
 
 jobs:
+  policy:
+    name: policy (pinned actions, main-only test kit, .gitignore)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Check the CI and repo rules
+        run: .github/scripts/check-policy.sh
+
   test:
     name: test (${{ matrix.os }})
     strategy:
@@ -262,7 +274,7 @@ jobs:
   publish-test-kit:
     name: publish the test kit (main only)
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    needs: [test, vulncheck, installer-build, installer-test]
+    needs: [policy, test, vulncheck, installer-build, installer-test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0

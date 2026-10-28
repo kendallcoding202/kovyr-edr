@@ -10,5 +10,5 @@ require (
 
 // Since Go 1.27, an SSL_CERT_FILE or SSL_CERT_DIR environment variable
 // replaces the Windows certificate store. The agent keeps trusting only
-// the Windows store.
+// the Windows store (checked by .github/scripts/check-policy.sh).
 godebug x509sslcertoverrideplatform=0

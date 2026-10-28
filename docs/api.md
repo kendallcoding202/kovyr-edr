@@ -23,7 +23,13 @@ page and SPEC disagree, SPEC wins.
   only to `localhost`, `127.0.0.0/8` or `::1`. The server URL may not carry
   credentials, a query or a fragment. TLS 1.2 or newer with normal
   certificate verification.
-* **No redirects.** The agent talks to the configured server and nothing else.
+* **No redirects, no proxy.** The agent talks to the configured server and
+  nothing else, directly: it ignores `HTTP_PROXY` / `HTTPS_PROXY`.
+* **Small, fixed requests.** Every request carries `User-Agent:
+  kovyr-alarm/<version>`. Response headers are capped at 16 KiB and the
+  challenge body at 256 bytes. The agent's log holds only status codes and
+  fixed text, never text a server or the network sent (a content type, a
+  body, a malformed header, the names in a certificate).
 * **No commands, ever.** The server can give the agent exactly two things: a
   nonce, and an HTTP status code. The challenge response must be exactly
   `{"nonce":"<32 lowercase hex>"}` (anything else, including any extra field,

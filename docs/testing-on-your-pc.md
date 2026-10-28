@@ -36,19 +36,34 @@ account on a new PC or VM is).
 
 ## 2. Download the test kit
 
-The kit is built by GitHub each time the code changes.
+GitHub builds and tests a new kit each time a change is merged into
+`main`. **Only download a kit from a run on the `main` branch.**
+kovyr-edr is public, so anyone can open a pull request, and GitHub runs
+the same checks on it. Those runs never publish a kit; don't download
+anything from them.
 
-1. In the test computer's browser, sign in to GitHub and open
-   **kendallcoding202/kovyr-edr → Actions**.
-2. Open the newest run with a green tick for the branch you are testing
-   (`claude/installer-test-kit` until it is merged, then `main`).
-3. At the bottom, under **Artifacts**, download
-   **kovyr-protection-alarm-test-kit**. (GitHub keeps these for a limited
-   time, 90 days by default.)
+1. In the test computer's browser, sign in to GitHub and open the list of
+   finished `main` runs:
+   https://github.com/kendallcoding202/kovyr-edr/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush+is%3Asuccess
+   (or **kendallcoding202/kovyr-edr → Actions → ci**, and set the
+   **Branch** filter to `main`).
+2. Open the newest run with a green tick. Check the top of its page
+   before you download anything. It must say **Triggered via push** (or
+   **Manually triggered**), name **kendallcoding202**, and show the branch
+   label **`main`** next to the commit. If it says pull request, or shows
+   another branch or another person, go back to the list.
+3. At the bottom, under **Artifacts**, download the one named exactly
+   **kovyr-protection-alarm-test-kit**. Never install from an artifact
+   whose name starts with `ci-only`: those are copies the checks pass
+   between their own steps, and they are deleted after a day. (GitHub
+   keeps a kit for 90 days.)
 4. In Downloads, right-click the zip, choose **Extract All**, and keep the
    suggested folder.
 
 You can also download it on your Mac and drag the zip into the VM.
+
+A change that is not merged yet has no kit. Merge it first (after
+review), then take the kit from the `main` run it starts.
 
 The kit holds:
 

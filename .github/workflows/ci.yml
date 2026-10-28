@@ -1,9 +1,15 @@
 name: ci
 
+# kovyr-edr is public: anyone's pull request, from any fork, runs this
+# workflow. So nothing a pull request run makes may look official: only
+# publish-test-kit, on main, uploads the test kit.
+
 on:
   push:
     branches: ["**"]
   pull_request:
+  # "Run workflow" on the Actions page. On main it also publishes a test kit.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -84,9 +90,10 @@ jobs:
 
   # The installer. It is built on Linux with wixl (msitools), then a fresh
   # windows-latest runner installs it silently, checks the service, runs
-  # the founder's test scripts against it, and uninstalls it. The artifact
-  # kovyr-protection-alarm-test-kit is what docs/testing-on-your-pc.md
-  # downloads.
+  # the founder's test scripts against it, and uninstalls it. The ci-only
+  # artifacts only carry the MSI between these jobs, for a day. The test
+  # kit that docs/testing-on-your-pc.md downloads is published by
+  # publish-test-kit, from main only.
   installer-build:
     name: installer (build the MSI on Linux)
     runs-on: ubuntu-latest
@@ -123,9 +130,10 @@ jobs:
 
       - uses: actions/upload-artifact@v6
         with:
-          name: kovyr-protection-alarm-test-kit
+          name: ci-only-kit-do-not-install
           path: dist/kit/
           if-no-files-found: error
+          retention-days: 1
 
       # A second build of the same MSI gets a new product code, like each
       # new test kit; the Windows job installs it over the first. CI only.
@@ -134,10 +142,10 @@ jobs:
 
       - uses: actions/upload-artifact@v6
         with:
-          name: installer-rebuild-ci-only
+          name: ci-only-rebuild-do-not-install
           path: dist/rebuild/kovyr-protection-alarm-x64.msi
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 1
 
   installer-test:
     name: installer (install the MSI on windows-latest)
@@ -154,12 +162,12 @@ jobs:
 
       - uses: actions/download-artifact@v7
         with:
-          name: kovyr-protection-alarm-test-kit
+          name: ci-only-kit-do-not-install
           path: kit
 
       - uses: actions/download-artifact@v7
         with:
-          name: installer-rebuild-ci-only
+          name: ci-only-rebuild-do-not-install
           path: rebuild
 
       - name: Build the dev receiver and the plain agent
@@ -177,3 +185,24 @@ jobs:
         if: failure()
         shell: pwsh
         run: Get-Content -ErrorAction SilentlyContinue "$env:ProgramData\Kovyr\logs\agent.log"
+
+  # The test kit docs/testing-on-your-pc.md downloads: the MSI and scripts
+  # the jobs above built and tested, published only for a push to main or
+  # a manual run on main, and only when every job passed. A pull request
+  # run (from a fork or not) never publishes one.
+  publish-test-kit:
+    name: publish the test kit (main only)
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    needs: [test, installer-build, installer-test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: ci-only-kit-do-not-install
+          path: kit
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: kovyr-protection-alarm-test-kit
+          path: kit/
+          if-no-files-found: error

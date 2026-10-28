@@ -1,0 +1,6 @@
+# The founder owns every file, the CI, installer and release files most of
+# all: GitHub asks for their review on every pull request, including
+# Dependabot's and outside contributors'. (Requiring code-owner approval
+# in branch protection waits until there is a second maintainer: GitHub
+# does not let anyone approve their own pull request.)
+* @kendallcoding202

@@ -334,8 +334,8 @@ func (d *Detector) publish() {
 	d.published.Store(&s)
 }
 
-// forgetAcked drops a trip and a peak that a statement has carried, so
-// each is reported once.
+// forgetAcked drops a trip and a peak that an accepted statement has
+// carried, so each is reported until the server has it, then not again.
 func (d *Detector) forgetAcked() {
 	a := d.acked.Load()
 	if d.cur.trip != nil && a >= d.cur.tripSeq {
@@ -347,9 +347,10 @@ func (d *Detector) forgetAcked() {
 }
 
 // Snapshot is the tripwire section for the next statement, and the
-// function to call once that statement is safely queued. A trip or peak
-// already carried by an earlier statement is left out, even if the
-// watcher has been quiet since.
+// function to call once the server has accepted that statement. Until
+// then every snapshot carries the same trip or peak again (SPEC 6.5), so a
+// lost upload cannot hide it. One already acknowledged is left out, even
+// if the watcher has been quiet since.
 func (d *Detector) Snapshot() (proof.Tripwire, func()) {
 	s := d.published.Load()
 	a := d.acked.Load()

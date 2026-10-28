@@ -54,7 +54,9 @@ type Checker interface {
 // action on a trip.
 type Tripwire interface {
 	// Snapshot is the tripwire section for the next statement, and the
-	// function to call once that statement is safely queued.
+	// function to call once the server has accepted that statement. Until
+	// it is called, every snapshot carries the same trip (and busiest
+	// window) again (SPEC 6.5).
 	Snapshot() (proof.Tripwire, func())
 	// Trips signals that the tripwire fired and an extra heartbeat is
 	// due now. It fires at most once per cooldown.
@@ -102,6 +104,8 @@ type Agent struct {
 	load        *loadMonitor
 	onBattery   bool      // last power state seen, to log changes once
 	deferredDue time.Time // the due time of the heartbeat being deferred
+
+	delivery // tripwire news waiting for the server (delivery.go)
 }
 
 // New opens the agent's state. It reconciles the chain head with the
@@ -247,14 +251,14 @@ func (a *Agent) beat(ctx context.Context, p plan) (*proof.Statement, error) {
 	if dropped > 0 {
 		a.cfg.Logf("queue full: dropped the %d oldest unsent statement(s)", dropped)
 	}
+	// The tripwire's news is acknowledged only when the server accepts
+	// this statement (Flush); until then every new one carries it again.
+	a.expect(st, ack)
 	d := proof.PayloadDigest(env.Payload)
 	a.state.Seq, a.state.Prev = st.Seq, fmt.Sprintf("%x", d[:])
 	if err := saveState(a.cfg.Dir, a.state); err != nil {
 		return nil, fmt.Errorf("save chain state: %w", err)
 	}
-	// Only now is the tripwire's news safely on its way: a statement that
-	// was never made leaves the trip for the next one.
-	ack()
 	return st, nil
 }
 
@@ -331,12 +335,16 @@ func (a *Agent) Flush(ctx context.Context) error {
 		cancel()
 		switch {
 		case err == nil:
+			if !a.delivered(seq, a.cfg.Clock.Now()) {
+				a.cfg.Logf("statement %d was delivered too late to count; its tripwire news goes out again", seq)
+			}
 			if err := a.queue.Remove(seq); err != nil {
 				return err
 			}
 			return a.dropOlder(seq)
 		case errors.Is(err, ErrRefused):
 			a.cfg.Logf("server refused statement %d (%v); dropping it", seq, err)
+			a.undelivered(seq)
 			if err := a.queue.Remove(seq); err != nil {
 				return err
 			}
@@ -369,6 +377,7 @@ func (a *Agent) dropUnsendable() error {
 		default:
 			continue
 		}
+		a.undelivered(seq)
 		if err := a.queue.Remove(seq); err != nil {
 			return err
 		}
@@ -391,6 +400,7 @@ func (a *Agent) dropOlder(seq uint32) error {
 		if s >= seq {
 			break
 		}
+		a.undelivered(s)
 		if err := a.queue.Remove(s); err != nil {
 			return err
 		}
@@ -406,7 +416,11 @@ func (a *Agent) dropOlder(seq uint32) error {
 // (longer on battery, deferred under load: see Throttle); failed sends
 // are retried with backoff and jitter, never in a hot loop. When the
 // tripwire fires it makes an extra heartbeat at once, which is never
-// deferred, and the scheduled heartbeat keeps its time.
+// deferred, and the scheduled heartbeat keeps its time. If that heartbeat
+// is not accepted, a retry that finds it gone or tripRefreshAge old makes
+// a new one first (fresh nonce, same trip), so the trip still reaches the
+// server inside its clock window; this happens only at a retry, so the
+// backoff bounds it.
 func (a *Agent) Run(ctx context.Context) error {
 	clk := a.cfg.Clock
 	nextBeat := clk.Now()
@@ -426,15 +440,17 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 		now := clk.Now()
 		a.load.observe(now)
+		beatTried := false // a heartbeat was attempted in this pass
 		switch {
 		case !now.Before(nextBeat) || tripped && !now.Before(due):
-			// The scheduled heartbeat (or one being deferred). A trip
-			// rides on it and stops any deferral.
-			p, deferBy := a.decide(now, due, tripped)
+			// The scheduled heartbeat (or one being deferred). A trip,
+			// new or not yet accepted, rides on it and stops any deferral.
+			p, deferBy := a.decide(now, due, tripped || a.tripOwed())
 			switch {
 			case deferBy > 0:
 				nextBeat = now.Add(deferBy)
 			default:
+				beatTried = true
 				if _, err := a.beat(ctx, p); err != nil {
 					// Typically offline. Try again soon (with backoff,
 					// never later than one interval) so a short outage
@@ -454,6 +470,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			// The extra heartbeat. It announces the time left until the
 			// scheduled one, so the receiver expects that one on time.
 			a.cfg.Logf("tripwire fired: sending a heartbeat now")
+			beatTried = true
 			if _, err := a.beat(ctx, plan{interval: untilNext(now, nextBeat)}); err != nil {
 				// The trip waits; retry with backoff, or with the
 				// scheduled heartbeat if that comes first.
@@ -469,12 +486,27 @@ func (a *Agent) Run(ctx context.Context) error {
 			retryAt = now
 		}
 		if !retryAt.IsZero() && !now.Before(retryAt) {
-			if err := a.Flush(ctx); err != nil {
+			if !beatTried && a.tripNeedsNewStatement(now) {
+				a.cfg.Logf("tripwire heartbeat not accepted yet: making a new one")
+				if _, err := a.beat(ctx, plan{interval: untilNext(now, nextBeat)}); err != nil {
+					a.cfg.Logf("tripwire heartbeat not made (%v)", err)
+				}
+			}
+			err := a.Flush(ctx)
+			switch {
+			case err != nil:
 				failures++
 				d := a.cfg.Backoff.Delay(failures)
 				a.cfg.Logf("send failed (%v); %d queued, retry in %v", err, a.queue.Len(), d.Round(time.Second))
 				retryAt = now.Add(d)
-			} else {
+			case a.tripOwed():
+				// Sent, but the trip did not get through (refused, or
+				// too late to count): try again, backing off.
+				failures++
+				d := a.cfg.Backoff.Delay(failures)
+				a.cfg.Logf("tripwire heartbeat not accepted; trying again in %v", d.Round(time.Second))
+				retryAt = now.Add(d)
+			default:
 				failures, retryAt = 0, time.Time{}
 			}
 		}

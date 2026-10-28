@@ -235,10 +235,17 @@ func (c *countingTripwire) Snapshot() (proof.Tripwire, func()) {
 }
 func (c *countingTripwire) Trips() <-chan struct{} { return nil }
 
-// The tripwire's news is acknowledged only once a statement is queued.
-func TestTripwireIsAcknowledgedOnlyWhenQueued(t *testing.T) {
+// The tripwire's news is acknowledged only once the server accepts a
+// statement carrying it: not when there is no statement, not when it is
+// merely queued, not when its upload fails.
+func TestTripwireIsAcknowledgedOnlyWhenAccepted(t *testing.T) {
 	tw := &countingTripwire{}
-	tr := &fakeTransport{chalErr: errors.New("offline")}
+	tr := &fakeTransport{chalErr: errors.New("offline"), postErr: func(n int) error {
+		if n == 1 {
+			return errors.New("upload failed")
+		}
+		return nil
+	}}
 	a, err := New(Config{Dir: t.TempDir(), Tripwire: tw}, newSigner(t), checks.NewRunner(checks.HealthyFake()), tr)
 	if err != nil {
 		t.Fatal(err)
@@ -252,8 +259,14 @@ func TestTripwireIsAcknowledgedOnlyWhenQueued(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tw.acks != 1 || st.Readings.Tripwire.State != proof.AvailNotApplicable {
-		t.Fatalf("acks %d, tripwire %+v", tw.acks, st.Readings.Tripwire)
+	if tw.acks != 0 || st.Readings.Tripwire.State != proof.AvailNotApplicable {
+		t.Fatalf("acks %d when queued, tripwire %+v", tw.acks, st.Readings.Tripwire)
+	}
+	if err := a.Flush(context.Background()); err == nil || tw.acks != 0 {
+		t.Fatalf("flush %v, acks %d after a failed upload", err, tw.acks)
+	}
+	if err := a.Flush(context.Background()); err != nil || tw.acks != 1 {
+		t.Fatalf("flush %v, acks %d after delivery, want 1", err, tw.acks)
 	}
 }
 

@@ -18,12 +18,23 @@ import (
 	"github.com/kendallcoding202/kovyr-edr/internal/proof"
 )
 
+// skipOutsideCI skips a test that cannot run on this machine, but fails
+// it on GitHub Actions: the CI runner is elevated, so these key-folder
+// guards (HOST-1) must really run there and never pass by skipping.
+func skipOutsideCI(t *testing.T, args ...any) {
+	t.Helper()
+	if os.Getenv("GITHUB_ACTIONS") == "true" {
+		t.Fatal(append([]any{"must run in CI, but:"}, args...)...)
+	}
+	t.Skip(args...)
+}
+
 // skipIfCannotPrepare skips when the test is not elevated: the key
 // directory is created for SYSTEM and Administrators only.
 func skipIfCannotPrepare(t *testing.T, dir string) {
 	t.Helper()
 	if !windows.GetCurrentProcessToken().IsElevated() {
-		t.Skip("needs an elevated (administrator) process, as the agent does")
+		skipOutsideCI(t, "needs an elevated (administrator) process, as the agent does")
 	}
 }
 
@@ -88,19 +99,19 @@ func withRestorePrivilege(t *testing.T) {
 	t.Helper()
 	var tok windows.Token
 	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_ADJUST_PRIVILEGES|windows.TOKEN_QUERY, &tok); err != nil {
-		t.Skip(err)
+		skipOutsideCI(t, err)
 	}
 	defer tok.Close()
 	var luid windows.LUID
 	if err := windows.LookupPrivilegeValue(nil, windows.StringToUTF16Ptr("SeRestorePrivilege"), &luid); err != nil {
-		t.Skip(err)
+		skipOutsideCI(t, err)
 	}
 	// An elevated process holds the privilege (skipIfCannotPrepare); if
 	// it were not held, setOwner below fails the test.
 	tp := windows.Tokenprivileges{PrivilegeCount: 1}
 	tp.Privileges[0] = windows.LUIDAndAttributes{Luid: luid, Attributes: windows.SE_PRIVILEGE_ENABLED}
 	if err := windows.AdjustTokenPrivileges(tok, false, &tp, 0, nil, nil); err != nil {
-		t.Skipf("cannot enable SeRestorePrivilege: %v", err)
+		skipOutsideCI(t, "cannot enable SeRestorePrivilege:", err)
 	}
 	t.Cleanup(func() {
 		var tok windows.Token
@@ -237,7 +248,7 @@ func TestStateFolderThatIsALinkIsRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(target, dir); err != nil {
-		t.Skipf("cannot make a symbolic link here: %v", err)
+		skipOutsideCI(t, "cannot make a symbolic link here:", err)
 	}
 	if err := CheckDir(dir); !errors.Is(err, ErrUnsafeDir) {
 		t.Fatalf("CheckDir on a link: %v", err)

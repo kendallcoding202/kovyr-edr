@@ -211,10 +211,12 @@ An in-toto Statement v1 (SPEC 6), canonical JSON, one subject:
   `state` is `ok` while it watches at least one folder, `unknown` when it
   could not watch any (or is turned off in the settings), and
   `not_applicable` outside Windows; when not `ok` it carries only `state`.
-  `triggered` says it fired since the previous statement, with a `reason`.
+  `triggered` says it fired since the last statement the server accepted,
+  with a `reason`: a trip is repeated in every statement until one carrying
+  it is accepted (SPEC 6.5), so the same trip can arrive more than once.
   The six counts are buckets (`0`, `1_9`, `10_99`, `100_999`,
   `1000_plus`) of the changes in the window that tripped, or in the busiest
-  window since the previous statement. No path, file name, extension or
+  window since the last accepted statement. No path, file name, extension or
   process name is ever in it. When it fires, the agent sends a statement
   at once (at most one per cooldown, ten minutes by default) that
   announces the time left until the scheduled one as `interval_s`.

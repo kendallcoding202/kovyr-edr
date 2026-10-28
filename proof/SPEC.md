@@ -444,14 +444,14 @@ watching claims nothing else. When `ok`:
 
 | Field | Type |
 |---|---|
-| `triggered` | boolean: the tripwire fired since the previous statement |
+| `triggered` | boolean: the tripwire fired since the last statement the ingest server accepted (below) |
 | `reason` | enum `none`, `mass_extension_change`, `ransom_notes`; `none` exactly when `triggered` is false |
 | `window` | enum `10s`, `30s`, `60s`, `120s`, `300s`: the sliding window |
 | `folders_watched` | integer 0 to 32 |
 | `renamed`, `extension_changed`, `modified`, `deleted`, `suspicious_created`, `unknown_activity` | bucket enum `0`, `1_9`, `10_99`, `100_999`, `1000_plus` |
 
 The buckets count the changes in the window that tripped (when `triggered`)
-or in the busiest window since the previous statement. `renamed` counts all
+or in the busiest window since the last accepted statement. `renamed` counts all
 renames and `extension_changed` the renames to a different extension
 (temporary-file renames excluded); `suspicious_created` counts files created
 with a ransom-note or random-looking name; `unknown_activity` counts
@@ -462,6 +462,13 @@ and counts are bucketed so it does not show how much a person works.
 When the tripwire fires the agent sends a statement at once, between its
 scheduled heartbeats (at most one such statement per cooldown, ten minutes by
 default); later trips are reported in the next heartbeat.
+
+A trip (and the busiest window) counts as reported only once the ingest
+server has accepted a statement carrying it, delivered while still inside
+the clock window of section 8. Until then every new statement carries it
+again, so one lost or late upload cannot hide it. A receiver can therefore
+see the same trip in more than one statement (for example when an upload
+arrived but its answer was lost) and treats them as one episode.
 
 ## 7. Envelopes
 

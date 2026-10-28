@@ -155,24 +155,52 @@ func New(cfg Config, signer proof.Signer, checker Checker, transport Transport) 
 	return a, nil
 }
 
+// reconcile adopts the chain head from the newest queued envelope ahead of
+// the saved state, but only from one this device signed: the device's
+// public key is public, so anyone who can drop a file into the queue
+// could otherwise move the chain head (to the last seq, say, which bricks
+// the device). A file that is not this device's is removed and the next
+// one is tried; each pass removes a file, so the loop ends.
 func (a *Agent) reconcile() error {
-	seq, env, ok, err := a.queue.Newest()
-	if err != nil || !ok || seq <= a.state.Seq {
-		return err
+	for {
+		seq, env, ok, err := a.queue.Newest()
+		if err != nil || !ok || seq <= a.state.Seq {
+			return err
+		}
+		_, d, err := a.ownStatement(seq, env)
+		if err != nil {
+			a.cfg.Logf("queued file %d is not a statement signed by this device; removed", seq)
+			if err := a.queue.Remove(seq); err != nil {
+				return err
+			}
+			continue
+		}
+		a.state.Seq = seq
+		a.state.Prev = fmt.Sprintf("%x", d[:])
+		a.cfg.Logf("recovered chain head seq %d from the queue", seq)
+		return saveState(a.cfg.Dir, a.state)
 	}
+}
+
+// ownStatement opens a queued envelope. It returns the statement and its
+// payload digest only if the envelope verifies under this device's key
+// and the statement is about this key and filed under its own seq.
+func (a *Agent) ownStatement(seq uint32, env []byte) (*proof.Statement, proof.Digest, error) {
 	e, err := proof.ParseEnvelope(env)
 	if err != nil {
-		return fmt.Errorf("queued envelope %d: %w", seq, err)
+		return nil, proof.Digest{}, err
+	}
+	if err := proof.VerifyEnvelope(e, a.signer.Public()); err != nil {
+		return nil, proof.Digest{}, err
 	}
 	st, err := proof.ValidateStatement(e.Payload)
-	if err != nil || st.Seq != seq || st.KeyID != a.signer.Public().KeyID() {
-		return fmt.Errorf("queued envelope %d does not belong to this chain", seq)
+	if err != nil {
+		return nil, proof.Digest{}, err
 	}
-	d := proof.PayloadDigest(e.Payload)
-	a.state.Seq = seq
-	a.state.Prev = fmt.Sprintf("%x", d[:])
-	a.cfg.Logf("recovered chain head seq %d from the queue", seq)
-	return saveState(a.cfg.Dir, a.state)
+	if st.Seq != seq || st.KeyID != a.signer.Public().KeyID() {
+		return nil, proof.Digest{}, errors.New("statement is filed under another seq or key")
+	}
+	return st, proof.PayloadDigest(e.Payload), nil
 }
 
 // State returns the chain head (for tests and the CLI).

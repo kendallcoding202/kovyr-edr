@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -216,6 +217,65 @@ func TestCrashBetweenQueueAndStateNeverReusesASeq(t *testing.T) {
 	st, err := a.Beat(context.Background())
 	if err != nil || st.Seq != 3 {
 		t.Fatalf("next seq %v, %v; want 3", st, err)
+	}
+}
+
+// plantForeign writes into the queue an envelope that claims this device
+// (its public key, which is public, as the subject) but is signed by
+// another key: what anyone who can write to the queue could make.
+func plantForeign(t *testing.T, dir string, victim proof.Signer, seq uint32) {
+	t.Helper()
+	readings, _ := checks.NewRunner(checks.HealthyFake()).RunWith(checks.RunOptions{})
+	nonce, _ := proof.NewAgentNonce()
+	salt, _ := proof.NewSalt()
+	payload, err := proof.BuildStatement(victim.Public(), proof.Header{Seq: seq, Prev: proof.GenesisPrev, Nonce: nonce,
+		Salt: salt, ObservedAt: time.Now(), AgentVersion: Version, Schedule: proof.Schedule{IntervalS: 900}},
+		SensorHealth(), readings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env, err := proof.SignEnvelope(payload, newSigner(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, err := OpenQueue(filepath.Join(dir, "queue"), DefaultQueueMaxEntries, DefaultQueueMaxBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := q.Push(seq, env.Canonical()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// PROTO-5: a queued file signed by another key never becomes the chain
+// head (seq 2^31-2 would leave the device one statement before "sequence
+// exhausted"). It is removed, and the agent continues its real chain.
+func TestForeignQueueEntryNeverMovesTheChainHead(t *testing.T) {
+	dir, s := t.TempDir(), newSigner(t)
+	tr := &fakeTransport{postErr: func(int) error { return errors.New("offline") }}
+	a := newAgent(t, dir, s, tr)
+	if _, err := a.Beat(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	plantForeign(t, dir, s, 1<<31-2)
+	var logs []string
+	a, err := New(Config{Dir: dir, Logf: func(f string, v ...any) { logs = append(logs, fmt.Sprintf(f, v...)) }},
+		s, checks.NewRunner(checks.HealthyFake()), tr)
+	if err != nil {
+		t.Fatalf("a planted file stopped the agent: %v", err)
+	}
+	if a.State().Seq != 1 {
+		t.Fatalf("chain head %d after a foreign file was planted, want 1", a.State().Seq)
+	}
+	if a.QueueLen() != 1 {
+		t.Errorf("queue %d, want only the real statement", a.QueueLen())
+	}
+	if len(logs) != 1 || logs[0] != "queued file 2147483646 is not a statement signed by this device; removed" {
+		t.Errorf("log %q", logs)
+	}
+	st, err := a.Beat(context.Background())
+	if err != nil || st.Seq != 2 {
+		t.Fatalf("next statement %v, %v; want seq 2", st, err)
 	}
 }
 

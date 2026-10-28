@@ -1,10 +1,14 @@
 module github.com/kendallcoding202/kovyr-edr
 
-go 1.24.7
+go 1.27.3
 
 require (
+	github.com/go-ole/go-ole v1.2.6
 	github.com/yusufpapurcu/wmi v1.2.4
 	golang.org/x/sys v0.41.0
 )
 
-require github.com/go-ole/go-ole v1.2.6
+// Since Go 1.27, an SSL_CERT_FILE or SSL_CERT_DIR environment variable
+// replaces the Windows certificate store. The agent keeps trusting only
+// the Windows store (checked by .github/scripts/check-policy.sh).
+godebug x509sslcertoverrideplatform=0

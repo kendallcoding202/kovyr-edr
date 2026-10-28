@@ -9,7 +9,7 @@ accepts nothing from the network but a nonce and a status code
 
 `kovyr-protection-alarm-x64.msi` (built on Linux by `installer/build-msi.sh`
 with wixl from msitools; CI publishes it in the
-`kovyr-protection-alarm-test-kit` artifact) does everything below in one
+`kovyr-protection-alarm-test-kit` artifact, from `main` only) does everything below in one
 step. Testing it on your own PC: `docs/testing-on-your-pc.md`.
 
 ```bat

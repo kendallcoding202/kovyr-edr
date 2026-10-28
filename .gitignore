@@ -1,5 +1,39 @@
 # build output
 /dist/
+# what CI (and internal/tools/winci) downloads into the repo root
+/kit/
+/rebuild/
+# `go build` without -o, run in the repo root
+/kovyr-agent
+/kovyr-receiver-dev
+/winci
+*.exe
+*.msi
+# go test -c, -coverprofile, -cpuprofile
+*.test
+*.out
+*.prof
 # dev receiver files (local only)
 kovyr-receiver-dev.jsonl
 devices.json
+# agent state from a local run with --state-dir: the device key, chain
+# state, settings and logs
+device-key.json
+chain-state.json
+agent-config.json
+*.log
+# key material, never committed: proof key files (<name>.key.json), TLS
+# keys for the dev receiver, code-signing certificates
+*.key
+*.key.json
+*.pem
+*.pfx
+*.p12
+.env
+.env.*
+!.env.example
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

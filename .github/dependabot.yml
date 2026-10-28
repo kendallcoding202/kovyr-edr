@@ -1,0 +1,31 @@
+# Weekly update pull requests for the Go modules and the GitHub Actions
+# that CI pins by commit. Minor and patch updates come grouped, one pull
+# request per ecosystem; a major update gets its own. A new release waits
+# 7 days before Dependabot proposes it, so a hijacked release is more
+# likely to be caught and pulled first (security updates don't wait).
+# Dependabot's pull requests run CI like any other: review and merge them
+# as usual. The Go toolchain itself (go.mod's go line) is not updated
+# here; govulncheck in CI says when it needs a bump.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 3
+    groups:
+      go-modules:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 3
+    groups:
+      github-actions:
+        update-types: [minor, patch]

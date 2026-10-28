@@ -1,8 +1,9 @@
 name: ci
 
 # kovyr-edr is public: anyone's pull request, from any fork, runs this
-# workflow. So nothing a pull request run makes may look official: only
-# publish-test-kit, on main, uploads the test kit.
+# workflow. So nothing a pull request run makes may look official (only
+# publish-test-kit, on main, uploads the test kit), every action is pinned
+# to a commit, and no checkout keeps the GitHub token.
 
 on:
   push:
@@ -27,10 +28,12 @@ jobs:
       # another toolchain.
       GOTOOLCHAIN: local
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       # Installs exactly the version on go.mod's go line.
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
 
@@ -96,18 +99,44 @@ jobs:
   # publish-test-kit, from main only.
   installer-build:
     name: installer (build the MSI on Linux)
-    runs-on: ubuntu-latest
+    # A fixed Ubuntu release, so the pinned msitools versions below exist.
+    runs-on: ubuntu-24.04
     env:
       GOTOOLCHAIN: local
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-go@v6
+      # No cache: the MSI's agent is compiled from scratch, never from a
+      # build cache restored from an earlier run.
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
+          cache: false
 
+      # setup-go's download is not checksum-verified. Compare it with the
+      # same Go release as verified by sum.golang.org before building.
+      - name: Verify the Go toolchain
+        run: .github/scripts/verify-go-toolchain.sh
+
+      # Exact package versions (Ubuntu 24.04's), recorded in the log and
+      # the job summary. A version that is no longer available fails here.
       - name: Install wixl (msitools)
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends wixl msitools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            wixl=0.103+repack-1build3 wixl-data=0.103+repack-1build3 \
+            msitools=0.103+repack-1build3 libmsi-1.0-0=0.103+repack-1build3 \
+            libgcab-1.0-0=1.6-1build2
+          {
+            echo "### Installer build tools"
+            echo '```'
+            go version
+            echo "wixl $(wixl --version)"
+            dpkg-query -W wixl wixl-data msitools libmsi-1.0-0 libgcab-1.0-0
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Build the MSI
         run: installer/build-msi.sh dist/installer
@@ -128,7 +157,7 @@ jobs:
           cp scripts/test/*.ps1 docs/testing-on-your-pc.md dist/kit/
           ls -l dist/kit
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: ci-only-kit-do-not-install
           path: dist/kit/
@@ -140,7 +169,7 @@ jobs:
       - name: Build the MSI again (for the upgrade test)
         run: installer/build-msi.sh dist/rebuild
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: ci-only-rebuild-do-not-install
           path: dist/rebuild/kovyr-protection-alarm-x64.msi
@@ -154,18 +183,21 @@ jobs:
     env:
       GOTOOLCHAIN: local
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
+          cache: false
 
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: ci-only-kit-do-not-install
           path: kit
 
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: ci-only-rebuild-do-not-install
           path: rebuild
@@ -196,12 +228,12 @@ jobs:
     needs: [test, installer-build, installer-test]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: ci-only-kit-do-not-install
           path: kit
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: kovyr-protection-alarm-test-kit
           path: kit/

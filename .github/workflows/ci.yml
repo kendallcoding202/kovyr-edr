@@ -23,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      # Installs exactly the go directive's version (1.24.7).
+      # Installs exactly the version on go.mod's go line.
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod

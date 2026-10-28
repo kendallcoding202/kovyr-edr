@@ -19,16 +19,21 @@ msiexec /x kovyr-protection-alarm-x64.msi /qn            (uninstall)
 
 * It puts `kovyr-agent.exe` in `C:\Program Files\Kovyr\`, then runs, as
   SYSTEM, `kovyr-agent service install --server "[SERVER]" --create-key
-  --start`: the code below, with a device key made if there is none (an
-  existing key is always kept, and one that cannot be opened stops the
-  install) and the service started (and removed again if it does not
-  start). If that step fails, the whole install rolls back. Its output is
-  not shown, so it also writes each step to the agent log (`service
-  install:` lines).
+  --start` (with `--dev-insecure` added when `DEV_INSECURE=1`): the code
+  below, with a device key made if there is none (an existing key is
+  always kept, and one that cannot be opened stops the install) and the
+  service started (and removed again if it does not start). If that step
+  fails, the whole install rolls back. Its output is not shown, so it also
+  writes each step to the agent log (`service install:` lines).
 * `SERVER` defaults to `https://agent.kovyr.com/api/agent`.
   `DEV_INSECURE=1` allows plain http to localhost (CI and development).
   Set them from an elevated prompt:
   `msiexec /i kovyr-protection-alarm-x64.msi SERVER=https://... /qn`.
+  Because the install step runs as SYSTEM, the MSI refuses (before it
+  copies anything) a `SERVER` that holds a quote or a backslash, or does
+  not start with `https://` or `http://`, and a `DEV_INSECURE` other than
+  `0` or `1`; `DEV_INSECURE` only chooses between two fixed command lines.
+  The agent then accepts only a plain URL (below).
 * Uninstalling stops and deletes the service (Windows Installer's
   ServiceControl) and removes the binary and its folder. **The state
   directory `C:\ProgramData\Kovyr` is kept** (device key, chain state,
@@ -45,9 +50,10 @@ msiexec /x kovyr-protection-alarm-x64.msi /qn            (uninstall)
   blocks it.
 
 CI (`installer-test` on `windows-latest`) checks that an install with a bad
-server URL rolls back completely, then installs it silently against the
-dev receiver and checks the binary, service, settings and state directory
-ACL. It runs the test kit's scripts (including the ransomware test)
+server URL rolls back completely and that a `SERVER` with a backslash or a
+`DEV_INSECURE` other than 0 or 1 is refused by a launch condition, then
+installs it silently against the dev receiver and checks the binary,
+service, settings and state directory ACL. It runs the test kit's scripts (including the ransomware test)
 against the installed service, installs a second build over it (same
 device, chain continues), uninstalls (key kept), reinstalls (same device)
 and uninstalls again, and checks that it refuses to install over a
@@ -75,6 +81,13 @@ kovyr-agent service status
 
 * the prompt is not elevated (also `uninstall`, `start` and `stop`);
 * there is no device key yet;
+* `--server` is not a plain `https://` URL: host name or IP address,
+  optional port, optional path of letters, digits and `. _ ~ -`; no
+  credentials, query, fragment, `%` escapes, spaces, quotes or
+  backslashes (plain `http://` only with `--dev-insecure`, to localhost);
+  `--dev-insecure` takes only `0`, `1`, `true` or `false`; `--server`,
+  `--dev-insecure` and `--state-dir` may each be given once, and nothing
+  but flags is accepted;
 * the state folder is not safe (next section);
 * `kovyr-agent.exe` is not under Program Files. A service runs as SYSTEM,
   so a binary in a folder a user can write to (Downloads, Desktop, Temp)

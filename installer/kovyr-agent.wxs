@@ -26,9 +26,19 @@
   first, then installs, keeping the key.
 
   Properties (from an elevated prompt, e.g. msiexec /i kovyr.msi SERVER=...):
-    SERVER        the receiver; default Kovyr production.
+    SERVER        the receiver; default Kovyr production. It goes on the
+                  command line the install step runs as SYSTEM, inside
+                  quotes, so a launch condition refuses one that holds a
+                  quote or a backslash (either could end the quotes and add
+                  flags), and the agent itself then refuses anything but a
+                  plain https URL.
     DEV_INSECURE  1 allows plain http, and only to localhost (CI and
-                  development); default 0.
+                  development); default 0. Anything but 0 or 1 is refused.
+                  It is never put into a command line: it picks one of two
+                  fixed ones.
+  Neither is in SecureCustomProperties, on purpose: listing a property
+  there would let a user who is not an administrator set it in an install
+  that runs elevated for them (a managed install).
 -->
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
   <Product Id="*" Name="Kovyr Protection Alarm" Manufacturer="Kovyr" Version="$(var.Version)"
@@ -44,6 +54,9 @@
 
     <Property Id="SERVER" Value="https://agent.kovyr.com/api/agent"/>
     <Property Id="DEV_INSECURE" Value="0"/>
+    <!-- A double quote, for the launch condition below: condition string
+         literals cannot hold one. -->
+    <Property Id="KOVYR_QUOTE" Value="&quot;"/>
     <Property Id="ARPNOMODIFY" Value="1"/>
     <Property Id="ARPNOREPAIR" Value="1"/>
     <Property Id="ARPURLINFOABOUT" Value="https://kovyr.com"/>
@@ -57,6 +70,9 @@
                       Name="ImagePath" Type="raw"/>
     </Property>
     <Condition Message="The Kovyr Protection Alarm service is already installed, but not by this installer. Remove it first: in an administrator prompt run &quot;C:\Program Files\Kovyr\kovyr-agent.exe&quot; service uninstall, then run this installer again.">Installed OR NOT KOVYR_SERVICE_PRESENT OR WIX_UPGRADE_DETECTED OR WIX_SAME_VERSION_UPGRADE_DETECTED</Condition>
+
+    <Condition Message="SERVER must be a plain https:// address, for example https://agent.kovyr.com/api/agent, with no quotes or backslashes.">Installed OR ((SERVER &lt;&lt; "https://" OR SERVER &lt;&lt; "http://") AND NOT (SERVER &gt;&lt; KOVYR_QUOTE) AND NOT (SERVER &gt;&lt; "\"))</Condition>
+    <Condition Message="DEV_INSECURE must be 0 or 1.">Installed OR DEV_INSECURE = "0" OR DEV_INSECURE = "1"</Condition>
 
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFiles64Folder">
@@ -74,9 +90,14 @@
     </Feature>
 
     <!-- Deferred, not impersonated: runs as SYSTEM after the files are in
-         place. Its exit code is checked; a failure rolls the install back. -->
+         place. Its exit code is checked; a failure rolls the install back.
+         SERVER is the only property in the command line, inside quotes;
+         DEV_INSECURE picks one of the two (see the sequence below). -->
     <CustomAction Id="KovyrInstallService" FileKey="KovyrAgentExe"
-                  ExeCommand="service install --server &quot;[SERVER]&quot; --dev-insecure=[DEV_INSECURE] --create-key --start"
+                  ExeCommand="service install --server &quot;[SERVER]&quot; --create-key --start"
+                  Execute="deferred" Impersonate="no" Return="check"/>
+    <CustomAction Id="KovyrInstallServiceDevInsecure" FileKey="KovyrAgentExe"
+                  ExeCommand="service install --server &quot;[SERVER]&quot; --dev-insecure --create-key --start"
                   Execute="deferred" Impersonate="no" Return="check"/>
     <!-- If the install fails after the service exists, remove it again. -->
     <CustomAction Id="KovyrInstallServiceRollback" FileKey="KovyrAgentExe"
@@ -89,7 +110,8 @@
       <!-- Last, after everything else is in place (PublishProduct 6400,
            InstallFinalize 6600). The rollback action comes first. -->
       <Custom Action="KovyrInstallServiceRollback" Sequence="6501">NOT Installed</Custom>
-      <Custom Action="KovyrInstallService" Sequence="6502">NOT Installed</Custom>
+      <Custom Action="KovyrInstallService" Sequence="6502">NOT Installed AND DEV_INSECURE &lt;&gt; "1"</Custom>
+      <Custom Action="KovyrInstallServiceDevInsecure" Sequence="6503">NOT Installed AND DEV_INSECURE = "1"</Custom>
     </InstallExecuteSequence>
   </Product>
 </Wix>

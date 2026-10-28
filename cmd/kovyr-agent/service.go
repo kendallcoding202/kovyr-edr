@@ -70,21 +70,30 @@ func cmdService(args []string, defDir string, stdout, stderr io.Writer) int {
 	sub, rest := args[0], args[1:]
 	fs := flag.NewFlagSet("kovyr-agent service "+sub, flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	dir := fs.String("state-dir", defDir, "directory for the device key, chain state, queue, settings and logs")
-	var server *string
+	// The MSI runs install as SYSTEM with values from public properties:
+	// a value is given once (no second --server or --state-dir sneaking
+	// in later) and nothing but flags is accepted (installargs.go).
+	dir := &onceString{v: defDir}
+	fs.Var(dir, "state-dir", "directory for the device key, chain state, queue, settings and logs")
+	var server onceString
+	var insecure strictBool
 	var interval *time.Duration
-	var insecure, noUser, createKey, start *bool
+	var noUser, createKey, start *bool
 	var watch folderList
 	if sub == "install" {
-		server = fs.String("server", "", "receiver base URL (https://...)")
+		fs.Var(&server, "server", "receiver base URL (https://...)")
 		interval = fs.Duration("interval", agent.DefaultInterval, "heartbeat interval (1m to 60m)")
-		insecure = fs.Bool("dev-insecure", false, "DEV ONLY: allow plain http to localhost")
+		fs.Var(&insecure, "dev-insecure", "DEV ONLY: allow plain http to localhost (0, 1, true or false)")
 		fs.Var(&watch, "watch", "also watch this data folder with the ransomware tripwire (repeatable)")
 		noUser = fs.Bool("no-user-folders", false, "do not watch each user's Desktop and Documents")
 		createKey = fs.Bool("create-key", false, "make a device key if there is none (an existing key is always kept)")
 		start = fs.Bool("start", false, "start the service after installing it (and remove it again if it does not start)")
 	}
 	if fs.Parse(rest) != nil {
+		return 2
+	}
+	if fs.NArg() > 0 {
+		fmt.Fprintf(stderr, "kovyr-agent service %s takes only flags; unexpected argument %q\n", sub, fs.Arg(0))
 		return 2
 	}
 	privileged := map[string]bool{"install": true, "uninstall": true, "start": true, "stop": true}
@@ -94,14 +103,14 @@ func cmdService(args []string, defDir string, stdout, stderr io.Writer) int {
 	}
 	switch sub {
 	case "install":
-		return serviceInstall(installOptions{dir: *dir, server: *server, interval: *interval, insecure: *insecure,
+		return serviceInstall(installOptions{dir: dir.v, server: server.v, interval: *interval, insecure: insecure.v,
 			watch: watch, userFolders: !*noUser, createKey: *createKey, start: *start}, stdout, stderr)
 	case "uninstall":
 		if err := svcUninstall(opTimeout); err != nil {
 			fmt.Fprintln(stderr, "uninstall:", err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "Removed the %s service. The device key and state in %s are kept.\n", service.Name, *dir)
+		fmt.Fprintf(stdout, "Removed the %s service. The device key and state in %s are kept.\n", service.Name, dir.v)
 		return 0
 	case "start":
 		if err := svcStart(opTimeout); err != nil {
@@ -134,7 +143,7 @@ func cmdService(args []string, defDir string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "`service run` is started by Windows. In a console, use `kovyr-agent run --server URL`.")
 			return 2
 		}
-		return runService(*dir)
+		return runService(dir.v)
 	}
 	fmt.Fprintf(stderr, "unknown service command %q\n\n%s", sub, serviceUsage)
 	return 2
@@ -165,6 +174,10 @@ func serviceInstall(o installOptions, stdout, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
+	}
+	if err := checkInstallServer(o.server, o.insecure); err != nil {
+		fmt.Fprintln(stderr, "settings:", err)
+		return 2
 	}
 	if o.interval%time.Second != 0 {
 		fmt.Fprintln(stderr, "the interval must be whole seconds")

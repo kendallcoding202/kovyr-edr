@@ -31,17 +31,31 @@ wixl --arch x64 -D Version="$version" -D AgentExe="$exe" -o "$msi" installer/kov
 # The rows the install depends on must be there: wixl skips some elements
 # it does not understand with only a warning.
 need() { # table, fixed string that must appear in it
-	if ! msiinfo export "$msi" "$1" | grep -qF -- "$2"; then
+	# Not grep -q: it stops reading at the first match, and with pipefail
+	# msiinfo's broken pipe would fail the check.
+	if ! msiinfo export "$msi" "$1" | grep -F -- "$2" >/dev/null; then
 		echo "the MSI's $1 table lacks '$2'" >&2
 		exit 1
 	fi
 }
-need CustomAction 'service install --server "[SERVER]" --dev-insecure=[DEV_INSECURE] --create-key --start'
+# The install step runs as SYSTEM: SERVER is its only property, inside
+# quotes, guarded by a launch condition; DEV_INSECURE only picks between
+# two fixed command lines and is never put into one.
+need CustomAction $'KovyrInstallService\t3090\tKovyrAgentExe\tservice install --server "[SERVER]" --create-key --start'
+need CustomAction $'KovyrInstallServiceDevInsecure\t3090\tKovyrAgentExe\tservice install --server "[SERVER]" --dev-insecure --create-key --start'
 need ServiceControl KovyrAgent
 need Upgrade 76817CD3-D389-4C31-B3EF-78D8DF5D7572
 need LaunchCondition KOVYR_SERVICE_PRESENT
+need LaunchCondition 'NOT (SERVER >< KOVYR_QUOTE) AND NOT (SERVER >< "\")'
+need LaunchCondition 'Installed OR DEV_INSECURE = "0" OR DEV_INSECURE = "1"'
+need Property $'KOVYR_QUOTE\t"'
 need InstallExecuteSequence $'RemoveExistingProducts\t\t1401'
-need InstallExecuteSequence $'KovyrInstallService\tNOT Installed\t6502'
+need InstallExecuteSequence $'KovyrInstallService\tNOT Installed AND DEV_INSECURE <> "1"\t6502'
+need InstallExecuteSequence $'KovyrInstallServiceDevInsecure\tNOT Installed AND DEV_INSECURE = "1"\t6503'
+if msiinfo export "$msi" CustomAction | grep -qF '[DEV_INSECURE]'; then
+	echo "the MSI puts DEV_INSECURE into a command line" >&2
+	exit 1
+fi
 
 (cd "$out" && sha256sum "$(basename "$msi")" > SHA256SUMS)
 echo "Built $msi (Kovyr Protection Alarm $version, x64, unsigned)"

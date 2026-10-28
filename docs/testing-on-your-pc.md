@@ -382,12 +382,15 @@ To confirm in Supabase, the newest row of `agent_heartbeats_raw` shows
 
 ### Proxy or network errors
 
-Log lines with `dial tcp`, `no such host`, `i/o timeout`, `proxyconnect` or
-`x509: certificate` mean the agent cannot reach `agent.kovyr.com` on port
-443.
+Log lines with `could not resolve the server name`, `could not connect`,
+`timed out`, `the server's certificate was not accepted` or `request
+failed` mean the agent cannot reach `agent.kovyr.com` on port 443. (The
+agent logs only these fixed words and HTTP status codes, never text the
+server or the network sent.)
 
-* The agent connects directly. It does **not** use Windows' proxy settings,
-  and it refuses networks that inspect HTTPS (common at offices and some
+* The agent connects directly. It does **not** use Windows' proxy settings
+  or the `HTTP_PROXY` / `HTTPS_PROXY` environment variables, and it
+  refuses networks that inspect HTTPS (common at offices and some
   hotels).
 * Test on your home network. A VM's default network setting ("shared" or
   "NAT") works.

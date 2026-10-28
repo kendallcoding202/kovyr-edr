@@ -81,9 +81,21 @@ deferral for load (ransomware keeps the processor busy), `triggered` true
 with the reason, and the counts of the window that tripped. It announces
 the time left to the scheduled heartbeat as `interval_s`, and the
 scheduled heartbeat keeps its time. Within the cooldown, further trips do
-not send extra heartbeats; the next scheduled heartbeat reports them. If
-the agent is offline, the trip waits (it is acknowledged only once a
-statement carrying it is queued) and goes out with the retry.
+not send extra heartbeats; the next scheduled heartbeat reports them.
+
+A trip counts as reported only once the server has accepted a statement
+carrying it, while that statement was still inside the server's 5-minute
+clock window (a `202` for an older one does not count, because halden
+checks the clock later). Until then every statement carries it again. If
+the agent is offline, the trip waits and goes out with the retry. If the
+statement carrying it cannot be uploaded (the network drops it, an
+attacker resets the connection, the server refuses it), a retry that finds
+it refused, or 2 minutes old, first makes a new heartbeat with a fresh
+challenge that carries the same trip, so it still arrives fresh. These
+extra heartbeats happen only at retries, which back off with jitter up to
+the heartbeat interval, so a server that keeps refusing gets at most about
+one more statement per retry, never a loop. The owner may get the trip in
+more than one statement; halden treats them as one alert.
 
 ## Sync and backup engines
 

@@ -21,9 +21,10 @@ const (
 	DefaultQueueMaxBytes   = 5 << 20
 )
 
-// Queue is the on-disk outbox of signed envelopes, one file per seq, sent
-// oldest first. When a cap is exceeded the oldest entries are dropped; the
-// receiver then sees the missing seqs, which is the honest outcome.
+// Queue is the on-disk outbox of signed envelopes, one file per seq (the
+// agent sends it newest first; see Agent.Flush). When a cap is exceeded
+// the oldest entries are dropped; the receiver then sees the missing seqs,
+// which is the honest outcome.
 type Queue struct {
 	dir        string
 	maxEntries int
@@ -140,6 +141,21 @@ func (q *Queue) pick(choose func([]entry) entry) (uint32, []byte, bool, error) {
 		return 0, nil, false, err
 	}
 	return e.seq, b, true, nil
+}
+
+// Seqs returns the queued seqs, oldest first.
+func (q *Queue) Seqs() ([]uint32, error) {
+	es, err := q.list()
+	out := make([]uint32, len(es))
+	for i, e := range es {
+		out[i] = e.seq
+	}
+	return out, err
+}
+
+// Get reads the entry for seq.
+func (q *Queue) Get(seq uint32) ([]byte, error) {
+	return fsutil.ReadFileCapped(filepath.Join(q.dir, fmt.Sprintf("%010d.dsse.json", seq)), proof.MaxEnvelopeBytes)
 }
 
 // Remove deletes the entry for seq (after delivery or a permanent refusal).

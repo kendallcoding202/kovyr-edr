@@ -1,6 +1,6 @@
 // Package agent is the heartbeat loop: every interval it fetches a
 // challenge, runs the checks, signs a statement, queues it on disk and
-// sends the queue oldest first.
+// sends the queue newest first (see Flush).
 //
 // SPEC section 8: every report carries a one-time server nonce issued for
 // this device, and ingest refuses nonces older than 10 minutes and
@@ -54,7 +54,9 @@ type Checker interface {
 // action on a trip.
 type Tripwire interface {
 	// Snapshot is the tripwire section for the next statement, and the
-	// function to call once that statement is safely queued.
+	// function to call once the server has accepted that statement. Until
+	// it is called, every snapshot carries the same trip (and busiest
+	// window) again (SPEC 6.5).
 	Snapshot() (proof.Tripwire, func())
 	// Trips signals that the tripwire fired and an extra heartbeat is
 	// due now. It fires at most once per cooldown.
@@ -102,6 +104,8 @@ type Agent struct {
 	load        *loadMonitor
 	onBattery   bool      // last power state seen, to log changes once
 	deferredDue time.Time // the due time of the heartbeat being deferred
+
+	delivery // tripwire news waiting for the server (delivery.go)
 }
 
 // New opens the agent's state. It reconciles the chain head with the
@@ -155,24 +159,52 @@ func New(cfg Config, signer proof.Signer, checker Checker, transport Transport) 
 	return a, nil
 }
 
+// reconcile adopts the chain head from the newest queued envelope ahead of
+// the saved state, but only from one this device signed: the device's
+// public key is public, so anyone who can drop a file into the queue
+// could otherwise move the chain head (to the last seq, say, which bricks
+// the device). A file that is not this device's is removed and the next
+// one is tried; each pass removes a file, so the loop ends.
 func (a *Agent) reconcile() error {
-	seq, env, ok, err := a.queue.Newest()
-	if err != nil || !ok || seq <= a.state.Seq {
-		return err
+	for {
+		seq, env, ok, err := a.queue.Newest()
+		if err != nil || !ok || seq <= a.state.Seq {
+			return err
+		}
+		_, d, err := a.ownStatement(seq, env)
+		if err != nil {
+			a.cfg.Logf("queued file %d is not a statement signed by this device; removed", seq)
+			if err := a.queue.Remove(seq); err != nil {
+				return err
+			}
+			continue
+		}
+		a.state.Seq = seq
+		a.state.Prev = fmt.Sprintf("%x", d[:])
+		a.cfg.Logf("recovered chain head seq %d from the queue", seq)
+		return saveState(a.cfg.Dir, a.state)
 	}
+}
+
+// ownStatement opens a queued envelope. It returns the statement and its
+// payload digest only if the envelope verifies under this device's key
+// and the statement is about this key and filed under its own seq.
+func (a *Agent) ownStatement(seq uint32, env []byte) (*proof.Statement, proof.Digest, error) {
 	e, err := proof.ParseEnvelope(env)
 	if err != nil {
-		return fmt.Errorf("queued envelope %d: %w", seq, err)
+		return nil, proof.Digest{}, err
+	}
+	if err := proof.VerifyEnvelope(e, a.signer.Public()); err != nil {
+		return nil, proof.Digest{}, err
 	}
 	st, err := proof.ValidateStatement(e.Payload)
-	if err != nil || st.Seq != seq || st.KeyID != a.signer.Public().KeyID() {
-		return fmt.Errorf("queued envelope %d does not belong to this chain", seq)
+	if err != nil {
+		return nil, proof.Digest{}, err
 	}
-	d := proof.PayloadDigest(e.Payload)
-	a.state.Seq = seq
-	a.state.Prev = fmt.Sprintf("%x", d[:])
-	a.cfg.Logf("recovered chain head seq %d from the queue", seq)
-	return saveState(a.cfg.Dir, a.state)
+	if st.Seq != seq || st.KeyID != a.signer.Public().KeyID() {
+		return nil, proof.Digest{}, errors.New("statement is filed under another seq or key")
+	}
+	return st, proof.PayloadDigest(e.Payload), nil
 }
 
 // State returns the chain head (for tests and the CLI).
@@ -219,14 +251,14 @@ func (a *Agent) beat(ctx context.Context, p plan) (*proof.Statement, error) {
 	if dropped > 0 {
 		a.cfg.Logf("queue full: dropped the %d oldest unsent statement(s)", dropped)
 	}
+	// The tripwire's news is acknowledged only when the server accepts
+	// this statement (Flush); until then every new one carries it again.
+	a.expect(st, ack)
 	d := proof.PayloadDigest(env.Payload)
 	a.state.Seq, a.state.Prev = st.Seq, fmt.Sprintf("%x", d[:])
 	if err := saveState(a.cfg.Dir, a.state); err != nil {
 		return nil, fmt.Errorf("save chain state: %w", err)
 	}
-	// Only now is the tripwire's news safely on its way: a statement that
-	// was never made leaves the trip for the next one.
-	ack()
 	return st, nil
 }
 
@@ -265,38 +297,130 @@ func (a *Agent) seal(nonce proof.Nonce, r proof.Readings, sched proof.Schedule) 
 	return env, st, nil
 }
 
-// Flush sends queued envelopes oldest first. It stops at the first
-// transient failure (so order is kept) and returns that error.
+// What the agent must assume of ingest (SPEC section 8): a nonce expires
+// 10 minutes after it is issued, and a seq at or below the last accepted
+// one is refused as a replay.
+const serverNonceLifetime = 10 * time.Minute
+
+// maxSendAge is the age past which a queued statement is certainly
+// refused: its nonce was issued before the statement was signed, so the
+// nonce is older still. The extra minute covers a small clock step.
+const maxSendAge = serverNonceLifetime + time.Minute
+
+// Flush sends the queue newest first, and stops at the first transient
+// failure, returning that error. The newest statement is the one that
+// says how the computer is now, and after an outage it must not wait
+// behind a backlog the server can only refuse (and that would spend the
+// server's per-device rate limit). So (docs/api.md, "The queue"):
+//
+//   - a statement older than maxSendAge, or not signed by this device, is
+//     dropped unsent;
+//   - once the server accepts a statement, every older one is dropped
+//     unsent: ingest refuses a seq at or below the last one it accepted;
+//   - a statement the server refuses is dropped, and the next newest is
+//     tried.
+//
+// The server records every dropped statement as a lost report (SPEC 8).
 func (a *Agent) Flush(ctx context.Context) error {
+	if err := a.dropUnsendable(); err != nil {
+		return err
+	}
 	for {
-		seq, env, ok, err := a.queue.Oldest()
-		if err != nil {
+		seq, env, ok, err := a.queue.Newest()
+		if err != nil || !ok {
 			return err
-		}
-		if !ok {
-			return nil
 		}
 		cctx, cancel := context.WithTimeout(ctx, requestTimeout)
 		err = a.transport.PostHeartbeat(cctx, env)
 		cancel()
 		switch {
 		case err == nil:
+			if !a.delivered(seq, a.cfg.Clock.Now()) {
+				a.cfg.Logf("statement %d was delivered too late to count; its tripwire news goes out again", seq)
+			}
+			if err := a.queue.Remove(seq); err != nil {
+				return err
+			}
+			return a.dropOlder(seq)
 		case errors.Is(err, ErrRefused):
 			a.cfg.Logf("server refused statement %d (%v); dropping it", seq, err)
+			a.undelivered(seq)
+			if err := a.queue.Remove(seq); err != nil {
+				return err
+			}
 		default:
 			return err
 		}
+	}
+}
+
+// dropUnsendable removes queued statements the server can never accept:
+// files that are not this device's statements, and statements older than
+// maxSendAge.
+func (a *Agent) dropUnsendable() error {
+	seqs, err := a.queue.Seqs()
+	if err != nil {
+		return err
+	}
+	now, stale := a.cfg.Clock.Now(), 0
+	for _, seq := range seqs {
+		env, err := a.queue.Get(seq)
+		var st *proof.Statement
+		if err == nil {
+			st, _, err = a.ownStatement(seq, env)
+		}
+		switch {
+		case err != nil:
+			a.cfg.Logf("queued file %d is not a statement signed by this device; removed", seq)
+		case now.Sub(st.ObservedAt) > maxSendAge:
+			stale++
+		default:
+			continue
+		}
+		a.undelivered(seq)
 		if err := a.queue.Remove(seq); err != nil {
 			return err
 		}
 	}
+	if stale > 0 {
+		a.cfg.Logf("dropped %d queued statement(s) too old for the server to accept; it records them as lost reports", stale)
+	}
+	return nil
+}
+
+// dropOlder removes every queued statement older than seq, which the
+// server just accepted.
+func (a *Agent) dropOlder(seq uint32) error {
+	seqs, err := a.queue.Seqs()
+	if err != nil {
+		return err
+	}
+	n := 0
+	for _, s := range seqs {
+		if s >= seq {
+			break
+		}
+		a.undelivered(s)
+		if err := a.queue.Remove(s); err != nil {
+			return err
+		}
+		n++
+	}
+	if n > 0 {
+		a.cfg.Logf("dropped %d older queued statement(s): the server accepted a newer one, so it records them as lost reports", n)
+	}
+	return nil
 }
 
 // Run is the heartbeat loop. It beats immediately, then every interval
 // (longer on battery, deferred under load: see Throttle); failed sends
 // are retried with backoff and jitter, never in a hot loop. When the
 // tripwire fires it makes an extra heartbeat at once, which is never
-// deferred, and the scheduled heartbeat keeps its time.
+// deferred, and the scheduled heartbeat keeps its time. If that heartbeat
+// is not accepted, a retry that finds it gone or tripRefreshAge old makes
+// a new one first (fresh nonce, same trip), so the trip still reaches the
+// server inside its clock window; this happens only at a retry, so the
+// backoff bounds it.
 func (a *Agent) Run(ctx context.Context) error {
 	clk := a.cfg.Clock
 	nextBeat := clk.Now()
@@ -316,15 +440,17 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 		now := clk.Now()
 		a.load.observe(now)
+		beatTried := false // a heartbeat was attempted in this pass
 		switch {
 		case !now.Before(nextBeat) || tripped && !now.Before(due):
-			// The scheduled heartbeat (or one being deferred). A trip
-			// rides on it and stops any deferral.
-			p, deferBy := a.decide(now, due, tripped)
+			// The scheduled heartbeat (or one being deferred). A trip,
+			// new or not yet accepted, rides on it and stops any deferral.
+			p, deferBy := a.decide(now, due, tripped || a.tripOwed())
 			switch {
 			case deferBy > 0:
 				nextBeat = now.Add(deferBy)
 			default:
+				beatTried = true
 				if _, err := a.beat(ctx, p); err != nil {
 					// Typically offline. Try again soon (with backoff,
 					// never later than one interval) so a short outage
@@ -344,6 +470,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			// The extra heartbeat. It announces the time left until the
 			// scheduled one, so the receiver expects that one on time.
 			a.cfg.Logf("tripwire fired: sending a heartbeat now")
+			beatTried = true
 			if _, err := a.beat(ctx, plan{interval: untilNext(now, nextBeat)}); err != nil {
 				// The trip waits; retry with backoff, or with the
 				// scheduled heartbeat if that comes first.
@@ -359,12 +486,27 @@ func (a *Agent) Run(ctx context.Context) error {
 			retryAt = now
 		}
 		if !retryAt.IsZero() && !now.Before(retryAt) {
-			if err := a.Flush(ctx); err != nil {
+			if !beatTried && a.tripNeedsNewStatement(now) {
+				a.cfg.Logf("tripwire heartbeat not accepted yet: making a new one")
+				if _, err := a.beat(ctx, plan{interval: untilNext(now, nextBeat)}); err != nil {
+					a.cfg.Logf("tripwire heartbeat not made (%v)", err)
+				}
+			}
+			err := a.Flush(ctx)
+			switch {
+			case err != nil:
 				failures++
 				d := a.cfg.Backoff.Delay(failures)
 				a.cfg.Logf("send failed (%v); %d queued, retry in %v", err, a.queue.Len(), d.Round(time.Second))
 				retryAt = now.Add(d)
-			} else {
+			case a.tripOwed():
+				// Sent, but the trip did not get through (refused, or
+				// too late to count): try again, backing off.
+				failures++
+				d := a.cfg.Backoff.Delay(failures)
+				a.cfg.Logf("tripwire heartbeat not accepted; trying again in %v", d.Round(time.Second))
+				retryAt = now.Add(d)
+			default:
 				failures, retryAt = 0, time.Time{}
 			}
 		}

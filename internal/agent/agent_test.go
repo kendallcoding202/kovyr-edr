@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -88,19 +89,21 @@ func decode(t *testing.T, env []byte) (*proof.Envelope, *proof.Statement) {
 func TestBeatsFormAChainAcrossRestarts(t *testing.T) {
 	dir, s, tr := t.TempDir(), newSigner(t), &fakeTransport{}
 	a := newAgent(t, dir, s, tr)
-	for i := 0; i < 3; i++ {
+	beat := func() {
+		t.Helper()
 		if _, err := a.Beat(context.Background()); err != nil {
 			t.Fatal(err)
 		}
+		if err := a.Flush(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 3; i++ {
+		beat()
 	}
 	// Restart: a new Agent continues the same chain.
 	a = newAgent(t, dir, s, tr)
-	if _, err := a.Beat(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if err := a.Flush(context.Background()); err != nil {
-		t.Fatal(err)
-	}
+	beat()
 	if len(tr.posted) != 4 || a.QueueLen() != 0 {
 		t.Fatalf("posted %d, queued %d", len(tr.posted), a.QueueLen())
 	}
@@ -116,7 +119,7 @@ func TestBeatsFormAChainAcrossRestarts(t *testing.T) {
 			t.Fatal(err)
 		}
 		if st.Seq != uint32(i+1) {
-			t.Errorf("statement %d has seq %d (sent oldest first?)", i, st.Seq)
+			t.Errorf("statement %d has seq %d", i, st.Seq)
 		}
 		if st.Prev != prev {
 			t.Errorf("seq %d: prev does not link to the previous payload", st.Seq)
@@ -130,7 +133,8 @@ func TestBeatsFormAChainAcrossRestarts(t *testing.T) {
 
 // SPEC section 8: a report needs a server nonce. Offline, the agent makes
 // no statement and spends no seq; statements whose upload failed wait in
-// the queue and go out oldest first.
+// the queue. The newest goes out first, and once it is accepted the older
+// ones are dropped (the server would refuse them as replays).
 func TestOfflineMakesNoStatementAndSpendsNoSeq(t *testing.T) {
 	dir, s := t.TempDir(), newSigner(t)
 	tr := &fakeTransport{chalErr: errors.New("offline")}
@@ -154,23 +158,20 @@ func TestOfflineMakesNoStatementAndSpendsNoSeq(t *testing.T) {
 	if err := a.Flush(context.Background()); err == nil {
 		t.Fatal("flush succeeded while uploads fail")
 	}
-	if a.QueueLen() != 3 {
-		t.Fatalf("queue %d, want 3 kept for retry", a.QueueLen())
+	if a.QueueLen() != 3 || tr.attempts != 1 {
+		t.Fatalf("queue %d after %d attempts, want 3 kept for retry after 1", a.QueueLen(), tr.attempts)
 	}
 	tr.postErr = nil
 	if err := a.Flush(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	for i, env := range tr.posted {
-		_, st := decode(t, env)
-		if st.Seq != uint32(i+1) {
-			t.Errorf("out of order: position %d has seq %d", i, st.Seq)
-		}
+	if len(tr.posted) != 1 || a.QueueLen() != 0 {
+		t.Fatalf("posted %d, queued %d; want only the newest sent", len(tr.posted), a.QueueLen())
 	}
-	if len(tr.posted) != 3 {
-		t.Fatalf("posted %d", len(tr.posted))
+	_, last := decode(t, tr.posted[0])
+	if last.Seq != 3 {
+		t.Errorf("sent seq %d first, want the newest (3)", last.Seq)
 	}
-	_, last := decode(t, tr.posted[2])
 	if last.Nonce != tr.lastNonce {
 		t.Error("statement does not carry the server nonce")
 	}
@@ -192,6 +193,10 @@ func TestRefusedEnvelopesAreDroppedNotRetriedForever(t *testing.T) {
 	}
 	if a.QueueLen() != 0 || len(tr.posted) != 1 {
 		t.Fatalf("queue %d posted %d", a.QueueLen(), len(tr.posted))
+	}
+	// The newest (2) was refused, so the next newest went out.
+	if _, st := decode(t, tr.posted[0]); st.Seq != 1 {
+		t.Errorf("delivered seq %d, want 1", st.Seq)
 	}
 }
 
@@ -216,6 +221,96 @@ func TestCrashBetweenQueueAndStateNeverReusesASeq(t *testing.T) {
 	st, err := a.Beat(context.Background())
 	if err != nil || st.Seq != 3 {
 		t.Fatalf("next seq %v, %v; want 3", st, err)
+	}
+}
+
+// plantForeign writes into the queue an envelope that claims this device
+// (its public key, which is public, as the subject) but is signed by
+// another key: what anyone who can write to the queue could make.
+func plantForeign(t *testing.T, dir string, victim proof.Signer, seq uint32) {
+	t.Helper()
+	readings, _ := checks.NewRunner(checks.HealthyFake()).RunWith(checks.RunOptions{})
+	nonce, _ := proof.NewAgentNonce()
+	salt, _ := proof.NewSalt()
+	payload, err := proof.BuildStatement(victim.Public(), proof.Header{Seq: seq, Prev: proof.GenesisPrev, Nonce: nonce,
+		Salt: salt, ObservedAt: time.Now(), AgentVersion: Version, Schedule: proof.Schedule{IntervalS: 900}},
+		SensorHealth(), readings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env, err := proof.SignEnvelope(payload, newSigner(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, err := OpenQueue(filepath.Join(dir, "queue"), DefaultQueueMaxEntries, DefaultQueueMaxBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := q.Push(seq, env.Canonical()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// PROTO-5: a queued file signed by another key never becomes the chain
+// head (seq 2^31-2 would leave the device one statement before "sequence
+// exhausted"). It is removed, and the agent continues its real chain.
+func TestForeignQueueEntryNeverMovesTheChainHead(t *testing.T) {
+	dir, s := t.TempDir(), newSigner(t)
+	tr := &fakeTransport{postErr: func(int) error { return errors.New("offline") }}
+	a := newAgent(t, dir, s, tr)
+	if _, err := a.Beat(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	plantForeign(t, dir, s, 1<<31-2)
+	var logs []string
+	a, err := New(Config{Dir: dir, Logf: func(f string, v ...any) { logs = append(logs, fmt.Sprintf(f, v...)) }},
+		s, checks.NewRunner(checks.HealthyFake()), tr)
+	if err != nil {
+		t.Fatalf("a planted file stopped the agent: %v", err)
+	}
+	if a.State().Seq != 1 {
+		t.Fatalf("chain head %d after a foreign file was planted, want 1", a.State().Seq)
+	}
+	if a.QueueLen() != 1 {
+		t.Errorf("queue %d, want only the real statement", a.QueueLen())
+	}
+	if len(logs) != 1 || logs[0] != "queued file 2147483646 is not a statement signed by this device; removed" {
+		t.Errorf("log %q", logs)
+	}
+	st, err := a.Beat(context.Background())
+	if err != nil || st.Seq != 2 {
+		t.Fatalf("next statement %v, %v; want seq 2", st, err)
+	}
+}
+
+// A foreign file planted while the agent runs is never sent: sent newest
+// first and answered 202, it would otherwise push the real statements out
+// as "older than an accepted one".
+func TestForeignQueueEntryIsNeverSent(t *testing.T) {
+	dir, s := t.TempDir(), newSigner(t)
+	tr := &fakeTransport{postErr: func(n int) error {
+		if n == 1 {
+			return errors.New("offline")
+		}
+		return nil
+	}}
+	a := newAgent(t, dir, s, tr)
+	if _, err := a.Beat(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Flush(context.Background()); err == nil {
+		t.Fatal("flush succeeded offline")
+	}
+	plantForeign(t, dir, s, 99)
+	if err := a.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(tr.posted) != 1 || a.QueueLen() != 0 {
+		t.Fatalf("posted %d, queued %d", len(tr.posted), a.QueueLen())
+	}
+	e, st := decode(t, tr.posted[0])
+	if err := proof.VerifyEnvelope(e, s.Public()); err != nil || st.Seq != 1 {
+		t.Fatalf("sent seq %d (%v), want the device's own seq 1", st.Seq, err)
 	}
 }
 

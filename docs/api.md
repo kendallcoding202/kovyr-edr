@@ -23,7 +23,13 @@ page and SPEC disagree, SPEC wins.
   only to `localhost`, `127.0.0.0/8` or `::1`. The server URL may not carry
   credentials, a query or a fragment. TLS 1.2 or newer with normal
   certificate verification.
-* **No redirects.** The agent talks to the configured server and nothing else.
+* **No redirects, no proxy.** The agent talks to the configured server and
+  nothing else, directly: it ignores `HTTP_PROXY` / `HTTPS_PROXY`.
+* **Small, fixed requests.** Every request carries `User-Agent:
+  kovyr-alarm/<version>`. Response headers are capped at 16 KiB and the
+  challenge body at 256 bytes. The agent's log holds only status codes and
+  fixed text, never text a server or the network sent (a content type, a
+  body, a malformed header, the names in a certificate).
 * **No commands, ever.** The server can give the agent exactly two things: a
   nonce, and an HTTP status code. The challenge response must be exactly
   `{"nonce":"<32 lowercase hex>"}` (anything else, including any extra field,
@@ -96,7 +102,7 @@ at most 16 KiB):
 |---|---|---|
 | `200`, `202` | accepted (or an exact re-delivery of the latest statement). `202` means "received, verification pending": halden stores the envelope and verifies it later, so a statement it then refuses also got a `202` | removes it from its queue |
 | `400`, `409`, `413`, `422` | refused for good: malformed, bad signature, invalid statement, replayed seq or nonce, unknown/expired/misdirected nonce, stale or future timestamp | drops it (the receiver keeps its own record) |
-| `401`, `403`, `404`, `429`, `5xx`, anything else | not now | keeps it queued; retries with exponential backoff and jitter, oldest first |
+| `401`, `403`, `404`, `429`, `5xx`, anything else | not now | keeps it queued; retries with exponential backoff and jitter, newest first (see "The queue" below) |
 
 The dev receiver answers with a small JSON body for people using `curl`
 (`outcome`, `seq`, `reason`, `events`). The agent never reads it.
@@ -211,10 +217,12 @@ An in-toto Statement v1 (SPEC 6), canonical JSON, one subject:
   `state` is `ok` while it watches at least one folder, `unknown` when it
   could not watch any (or is turned off in the settings), and
   `not_applicable` outside Windows; when not `ok` it carries only `state`.
-  `triggered` says it fired since the previous statement, with a `reason`.
+  `triggered` says it fired since the last statement the server accepted,
+  with a `reason`: a trip is repeated in every statement until one carrying
+  it is accepted (SPEC 6.5), so the same trip can arrive more than once.
   The six counts are buckets (`0`, `1_9`, `10_99`, `100_999`,
   `1000_plus`) of the changes in the window that tripped, or in the busiest
-  window since the previous statement. No path, file name, extension or
+  window since the last accepted statement. No path, file name, extension or
   process name is ever in it. When it fires, the agent sends a statement
   at once (at most one per cooldown, ten minutes by default) that
   announces the time left until the scheduled one as `interval_s`.
@@ -264,6 +272,30 @@ only right after a challenge, and when it is offline it makes no statement:
 the receiver sees a gap ("silence is a signal"). Its on-disk queue (500
 entries / 5 MB, oldest dropped first) bridges short upload failures, not
 long offline periods.
+
+### The queue
+
+The agent sends its queue **newest first**: the newest statement says how
+the computer is now, and after an outage it must not wait behind a backlog
+that ingest can only refuse (halden also limits each device's uploads per
+hour). Before each send, and after each answer:
+
+1. A queued statement signed more than **11 minutes** ago (the 10-minute
+   nonce lifetime plus a minute for clock steps) is dropped unsent. Its
+   nonce was issued before it was signed, so ingest refuses it whatever the
+   clocks say.
+2. A queued file that is not a statement signed by this device's key is
+   removed unsent.
+3. Once the server accepts a statement (`200`/`202`), every older queued
+   statement is dropped unsent: ingest refuses a `seq` at or below the last
+   one it accepted.
+4. A refused statement (`400`/`409`/`413`/`422`) is dropped and the next
+   newest is tried; anything else stops the send until the retry.
+
+Every statement dropped this way shows at the receiver as a lost report
+(`missing_seq`, halden's `lost_reports_total`), which is the honest outcome.
+A statement between 5 and 11 minutes old is still sent, because a clock
+difference can make it acceptable.
 
 ## Spec decisions (Ticket 2)
 

@@ -11,6 +11,10 @@ on:
   pull_request:
   # "Run workflow" on the Actions page. On main it also publishes a test kit.
   workflow_dispatch:
+  # Weekly, so a newly published Go vulnerability (govulncheck) turns main
+  # red even in a week without pushes. Mondays 14:23 UTC.
+  schedule:
+    - cron: "23 14 * * 1"
 
 permissions:
   contents: read
@@ -90,6 +94,39 @@ jobs:
         if: failure() && runner.os == 'Windows'
         shell: pwsh
         run: Get-Content -ErrorAction SilentlyContinue "$env:ProgramData\Kovyr\logs\agent.log"
+
+  # Known vulnerabilities in the Go standard library and modules that the
+  # code actually reaches, for the Linux build and for the Windows build
+  # the agent ships as. Fails the run when there are any: the usual fix is
+  # the newest Go patch release on go.mod's go line.
+  vulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      # A fixed version; the go command checks it against sum.golang.org.
+      - name: Install govulncheck
+        run: |
+          GOBIN="$RUNNER_TEMP/bin" go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: govulncheck (linux)
+        run: govulncheck ./...
+
+      - name: govulncheck (windows)
+        env:
+          GOOS: windows
+        run: govulncheck ./...
 
   # The installer. It is built on Linux with wixl (msitools), then a fresh
   # windows-latest runner installs it silently, checks the service, runs
@@ -225,7 +262,7 @@ jobs:
   publish-test-kit:
     name: publish the test kit (main only)
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    needs: [test, installer-build, installer-test]
+    needs: [test, vulncheck, installer-build, installer-test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0

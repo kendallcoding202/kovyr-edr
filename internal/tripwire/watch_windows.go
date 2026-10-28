@@ -16,10 +16,11 @@ import (
 )
 
 // Read-only watching with ReadDirectoryChangesW: each folder is opened
-// with FILE_LIST_DIRECTORY and backup semantics (directories cannot be
-// opened otherwise), never for writing; notifications arrive on one I/O
-// completion port and one goroutine handles them all. The agent never
-// opens, reads or hashes the files themselves.
+// with FILE_LIST_DIRECTORY and FILE_READ_ATTRIBUTES and backup semantics
+// (directories cannot be opened otherwise), never for writing, and
+// without following a junction or link (openWatched); notifications
+// arrive on one I/O completion port and one goroutine handles them all.
+// The agent never opens, reads or hashes the files themselves.
 
 // notifyFilter: file names (create, delete, rename) and last write
 // (modify). Directory names, attributes and security are left out.
@@ -83,13 +84,7 @@ func Start(folders []string, det *Detector, logf func(string, ...any)) (*Watch, 
 	}
 	w := &Watch{port: port, det: det, logf: logf, done: make(chan struct{})}
 	for i, f := range folders {
-		p, err := windows.UTF16PtrFromString(f)
-		if err != nil {
-			continue
-		}
-		h, err := windows.CreateFile(p, windows.FILE_LIST_DIRECTORY,
-			windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE, nil,
-			windows.OPEN_EXISTING, windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OVERLAPPED, 0)
+		h, err := openWatched(f)
 		if err != nil {
 			logf("tripwire: cannot watch folder %d of %d (%v)", i+1, len(folders), errClass(err))
 			continue
@@ -115,8 +110,114 @@ func Start(folders []string, det *Detector, logf func(string, ...any)) (*Watch, 
 	return w, nil
 }
 
+// openWatched opens folder for watching only if it is the folder meant.
+// FILE_FLAG_OPEN_REPARSE_POINT opens a junction or link at the path
+// itself instead of its target, and such a handle is refused; the final
+// path of the handle must then be folder itself (short names made long),
+// which a junction anywhere on the way would change. Checked on the
+// handle, so a swap after the check changes nothing: the handle stays on
+// the folder that passed.
+func openWatched(folder string) (windows.Handle, error) {
+	want, err := longPath(folder)
+	if err != nil {
+		return windows.InvalidHandle, err
+	}
+	p, err := windows.UTF16PtrFromString(folder)
+	if err != nil {
+		return windows.InvalidHandle, err
+	}
+	h, err := windows.CreateFile(p, windows.FILE_LIST_DIRECTORY|windows.FILE_READ_ATTRIBUTES,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE, nil, windows.OPEN_EXISTING,
+		windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT|windows.FILE_FLAG_OVERLAPPED, 0)
+	if err != nil {
+		return windows.InvalidHandle, err
+	}
+	if err := checkHandle(h, want); err != nil {
+		windows.CloseHandle(h)
+		return windows.InvalidHandle, err
+	}
+	return h, nil
+}
+
+// fileAttributeTagInfo is FILE_ATTRIBUTE_TAG_INFO.
+type fileAttributeTagInfo struct {
+	FileAttributes uint32
+	ReparseTag     uint32
+}
+
+func checkHandle(h windows.Handle, want string) error {
+	var ti fileAttributeTagInfo
+	if err := windows.GetFileInformationByHandleEx(h, windows.FileAttributeTagInfo,
+		(*byte)(unsafe.Pointer(&ti)), uint32(unsafe.Sizeof(ti))); err != nil {
+		return err
+	}
+	if err := checkOpened(ti.FileAttributes, ti.ReparseTag); err != nil {
+		return err
+	}
+	final, err := finalPath(h)
+	if err != nil {
+		return err
+	}
+	if !samePath(want, final) {
+		return errElsewhere
+	}
+	return nil
+}
+
+// longPath is folder made absolute, with any short (8.3) names long, as
+// GetFinalPathNameByHandle reports them.
+func longPath(folder string) (string, error) {
+	abs, err := filepath.Abs(folder)
+	if err != nil {
+		return "", err
+	}
+	p, err := windows.UTF16PtrFromString(abs)
+	if err != nil {
+		return "", err
+	}
+	buf := make([]uint16, windows.MAX_PATH)
+	for {
+		n, err := windows.GetLongPathName(p, &buf[0], uint32(len(buf)))
+		if err != nil {
+			return "", err
+		}
+		if n < uint32(len(buf)) {
+			return windows.UTF16ToString(buf[:n]), nil
+		}
+		if n > 1<<15 {
+			return "", errors.New("path too long")
+		}
+		buf = make([]uint16, n)
+	}
+}
+
+// FILE_NAME_NORMALIZED | VOLUME_NAME_DOS: the long-name path with a drive
+// letter (x/sys/windows does not name these; both are 0).
+const finalPathFlags = 0x0 | 0x0
+
+// finalPath is the path Windows has for the opened handle, after every
+// junction and link on the way.
+func finalPath(h windows.Handle) (string, error) {
+	buf := make([]uint16, windows.MAX_PATH)
+	for {
+		n, err := windows.GetFinalPathNameByHandle(h, &buf[0], uint32(len(buf)), finalPathFlags)
+		if err != nil {
+			return "", err
+		}
+		if n < uint32(len(buf)) {
+			return windows.UTF16ToString(buf[:n]), nil
+		}
+		if n > 1<<15 {
+			return "", errors.New("path too long")
+		}
+		buf = make([]uint16, n+1)
+	}
+}
+
 func errClass(err error) string {
 	switch {
+	case errors.Is(err, errNotAFolder), errors.Is(err, errLink), errors.Is(err, errElsewhere):
+		return err.Error()
 	case errors.Is(err, windows.ERROR_ACCESS_DENIED):
 		return "access denied"
 	case errors.Is(err, windows.ERROR_FILE_NOT_FOUND), errors.Is(err, windows.ERROR_PATH_NOT_FOUND):

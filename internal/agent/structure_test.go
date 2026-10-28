@@ -14,7 +14,9 @@ import (
 // or load code. The test walks every in-module package the agent command
 // reaches (all build tags, so Windows files too), starting from the
 // command itself, so a new package or library is covered without editing
-// a list.
+// a list. It sees imports only: internal/tools/binscan also checks the
+// built binary for any function that starts a process, which catches a
+// direct CreateProcess call and launchers inside libraries.
 
 const module = "github.com/kendallcoding202/kovyr-edr/"
 

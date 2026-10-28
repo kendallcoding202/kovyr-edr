@@ -8,6 +8,7 @@ import (
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
+	"golang.org/x/sys/windows/svc/eventlog"
 	"golang.org/x/sys/windows/svc/mgr"
 )
 
@@ -78,6 +79,20 @@ func Install(exe, stateDir string) error {
 		return fmt.Errorf("set recovery on error exits: %w", err)
 	}
 	return nil
+}
+
+// ReportError writes msg to the Windows Application event log, source
+// KovyrAgent. It is for failures nobody would otherwise see: the MSI does
+// not show the install step's output, and a state folder that is not safe
+// cannot hold the agent's own log. Best effort; it registers nothing, so
+// Event Viewer prefixes the text with a note that the source is unknown.
+func ReportError(msg string) {
+	l, err := eventlog.Open(Name)
+	if err != nil {
+		return
+	}
+	defer l.Close()
+	l.Error(1, msg)
 }
 
 // Uninstall stops the service if it runs and removes it. The state

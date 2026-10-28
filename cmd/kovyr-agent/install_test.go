@@ -223,3 +223,41 @@ func TestVersion(t *testing.T) {
 		t.Fatalf("exit %d %q", code, out)
 	}
 }
+
+// HOST-1: the install checks the state directory before it reads the key
+// or writes anything, on both paths (an existing key, --create-key). A
+// directory that is a link is refused on every OS; on Windows one that
+// someone else owns is too (internal/keystore).
+func TestInstallRefusesAnUnsafeStateDirBeforeWriting(t *testing.T) {
+	for _, withKey := range []bool{true, false} {
+		f := useFakeSCM(t)
+		root := t.TempDir()
+		target, link := filepath.Join(root, "real"), filepath.Join(root, "Kovyr")
+		if withKey {
+			if code, _, errs := runCLI(t, "keygen", "--state-dir", target); code != 0 {
+				skipWithoutKeyStore(t, errs)
+				t.Fatal(errs)
+			}
+		} else if err := os.Mkdir(target, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, link); err != nil {
+			t.Skipf("cannot make a symbolic link here: %v", err)
+		}
+		code, _, errs := runCLI(t, installArgs(link, "--create-key", "--start")...)
+		if code != 1 || !strings.Contains(errs, "install: ") || !strings.Contains(errs, "delete the folder") {
+			t.Fatalf("key %v: exit %d %q", withKey, code, errs)
+		}
+		for _, p := range []string{config.Path(target), filepath.Join(target, "logs")} {
+			if _, err := os.Stat(p); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("key %v: %s was written (%v)", withKey, p, err)
+			}
+		}
+		if !withKey && keystore.Exists(target) {
+			t.Errorf("a key was made through the link")
+		}
+		if len(f.calls) != 0 {
+			t.Errorf("key %v: service manager called: %v", withKey, f.calls)
+		}
+	}
+}

@@ -3,9 +3,13 @@
 // v0 uses a software ECDSA P-256 key; its evidence strength is "software"
 // and every statement says so. On Windows the private key is sealed with
 // DPAPI in machine scope (CryptProtectData, CRYPTPROTECT_LOCAL_MACHINE)
-// and stored under %ProgramData%\Kovyr, in a directory only SYSTEM and
-// Administrators can open. Elsewhere it is a plain 0600 file, for
-// development only.
+// and stored under %ProgramData%\Kovyr. Machine-scope DPAPI only ties the
+// blob to this computer; any process on it can unseal it. What keeps the
+// key from other users is the access list: the directory, and the key
+// file itself, are open only to SYSTEM and Administrators, and an
+// existing directory is checked (and refused or repaired) before it is
+// used (dirsafety.go). Elsewhere it is a plain 0600 file, for development
+// only.
 //
 // Callers get a proof.Signer, so a TPM-backed key in the Microsoft
 // Platform Crypto Provider can replace this package without touching the
@@ -105,11 +109,23 @@ func Generate(dir string) (proof.Signer, error) {
 	if err := fsutil.WriteFileAtomic(Path(dir), append(b, '\n')); err != nil {
 		return nil, err
 	}
+	// Its own protected access list, rather than only what the folder
+	// passes down.
+	if err := protectKeyFile(Path(dir)); err != nil {
+		return nil, fmt.Errorf("restrict the device key file: %w", err)
+	}
 	return signer, nil
 }
 
-// Load opens the device key in dir.
+// Load opens the device key in dir, after checking that only SYSTEM and
+// Administrators control dir and the key file (on Windows; CheckDir).
 func Load(dir string) (proof.Signer, error) {
+	if err := CheckDir(dir); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, ErrNoKey
+		}
+		return nil, err
+	}
 	path := Path(dir)
 	if err := checkFilePerms(path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {

@@ -24,7 +24,9 @@ import (
 // installed. upgrade is a second build of the same MSI (another product
 // code, as each new test kit has), agentExe the plain agent binary.
 //
-//  1. an install with a bad server URL fails and rolls back completely;
+//  1. an install with a bad server URL fails and rolls back completely,
+//     and SERVER or DEV_INSECURE values that could change the SYSTEM
+//     install step's command line are refused by a launch condition;
 //  2. an install puts the binary in Program Files, makes a device key in a
 //     locked-down state directory, writes the settings, and registers and
 //     starts the service with the agent's own install code; the agent is
@@ -77,6 +79,23 @@ func msiTest(msi, upgrade, kit, receiverExe, agentExe string) error {
 			err, exists(exe), exists(state))
 	}
 	fmt.Printf("ok: an install with a bad server fails (%v) and leaves no service, binary or key\n", d.Round(time.Second))
+	// A backslash could end the quotes around [SERVER] in that command
+	// line; DEV_INSECURE may only pick one of two fixed command lines.
+	for i, bad := range []struct{ prop, msg string }{
+		{`SERVER=https://agent.example\`, "SERVER must be a plain https:// address"},
+		{"DEV_INSECURE=2", "DEV_INSECURE must be 0 or 1"},
+	} {
+		name := msiLog(fmt.Sprintf("msi-bad-property-%d", i+1))
+		code, _ := msiexec("/i", msi, "/qn", "/l*v", name, bad.prop)
+		b, _ := os.ReadFile(name)
+		if code != 1603 || !strings.Contains(decodeUTF16(b), bad.msg) {
+			return msiFail(name, "install with %s: exit %d, want 1603 from the launch condition %q", bad.prop, code, bad.msg)
+		}
+		if _, err := service.Query(); !errors.Is(err, service.ErrNotInstalled) || exists(exe) || exists(state) {
+			return msiFail(name, "after %s: service %v, binary %v, state directory %v", bad.prop, err, exists(exe), exists(state))
+		}
+		fmt.Printf("ok: %s is refused by a launch condition and leaves nothing\n", bad.prop)
+	}
 
 	// The receiver runs with no device enrolled yet; it re-reads its
 	// devices file when an unknown device calls.
@@ -255,6 +274,7 @@ func msiTest(msi, upgrade, kit, receiverExe, agentExe string) error {
 	summary("### MSI installer (windows-latest)\n\n")
 	summary("| Step | Result |\n|---|---|\n")
 	summary("| install with a bad server URL | fails (1603), rolls back: no service, binary or key |\n")
+	summary("| `SERVER` with a backslash, `DEV_INSECURE=2` | refused by a launch condition (1603), nothing installed |\n")
 	summary("| silent install | %v: binary in Program Files, service running (LocalSystem, delayed automatic, recovery), key in a locked-down `ProgramData\\Kovyr` |\n", installTime.Round(time.Second))
 	summary("| before enrollment | receiver answers 403, agent logs it and retries |\n")
 	summary("| after enrollment | heartbeats arrive (seq %d) |\n", s1.LastSeq)

@@ -28,6 +28,17 @@ It uses `ReadDirectoryChangesW` on each folder (with subfolders), file-name
 and last-write changes only, through one I/O completion port: one thread,
 no polling.
 
+Each folder, configured ones included, is opened without following a
+junction or symbolic link (`FILE_FLAG_OPEN_REPARSE_POINT`), and watched
+only if the opened handle is that folder: not a junction or link itself,
+and its final path (`GetFinalPathNameByHandle`) the folder's own, so a
+junction anywhere on the way is caught too. Otherwise a user could swap
+their Documents for a junction to `C:\` between the agent listing it and
+opening it, and the SYSTEM service would watch the whole drive. Such a
+folder is skipped like one that cannot be opened. Folders that only carry
+a non-redirecting reparse point, such as OneDrive's cloud placeholders,
+are watched as before.
+
 ## What it counts
 
 Each change is classified in memory and only its class is kept; the file
@@ -179,7 +190,8 @@ Each of these only ever costs a false alarm: the tripwire takes no action.
   folders; a typical office PC watches 2 to 6). No file is opened, read or
   hashed; only change notifications arrive.
 * Engine write counts are sampled only while files are changing.
-* A folder that cannot be opened is skipped (logged by number, never by
+* A folder that cannot be opened, or that is or passes through a
+  junction or link, is skipped (logged by number and reason, never by
   path); a folder that disappears is dropped; with no folder left the state
   is `unknown`. The tripwire never stops the agent: if it cannot start, the
   heartbeats carry `state` `unknown`.

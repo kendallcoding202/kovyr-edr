@@ -1,6 +1,6 @@
 module github.com/kendallcoding202/kovyr-edr
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/go-ole/go-ole v1.2.6
